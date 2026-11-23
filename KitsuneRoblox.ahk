@@ -99,6 +99,8 @@ class App {
         lg.OnEvent("Size", (*) => this.LoginWv.Fill())
         lg.OnEvent("Close", (*) => this.EndLogin())
         this.LoginWv.Fill()
+        this.LoginCookie := ""
+        this.LoginWv.CoreWebView2.add_WebMessageReceived((sender, args) => this.GotUser(args.TryGetWebMessageAsString()))
         this.LoginWv.CoreWebView2.Navigate("https://www.roblox.com/login")
         this.LoginFn := ObjBindMethod(this, "CheckLogin")
         SetTimer(this.LoginFn, 1500)
@@ -110,22 +112,34 @@ class App {
             this.LoginWv.CoreWebView2.CookieManager.GetCookiesAsync("https://www.roblox.com").then(list => this.GotCookies(list))
     }
 
+    ; Cookie found: ask Roblox "who is logged in?" from inside the login page (its own browser session).
+    ; No answer yet = login not finished (2-step, captcha): the next check asks again.
     static GotCookies(list) {
         loop list.Count {
             c := list.GetValueAtIndex(A_Index - 1)
             if c.Name != ".ROBLOSECURITY" || !this.HasOwnProp("LoginWv")
                 continue
-            cookie := c.Value
-            this.EndLogin()
-            if !(u := RbxUser(cookie))
-                return this.Log("Login seen, but Roblox didn't accept it. Try again")
-            old := this.Accts.Has(u.id) ? this.Accts[u.id] : 0
-            a := this.Accts[u.id] := {name: u.name, tracker: old ? old.tracker : NewTracker(), cookie: Protect(cookie)
-                , pid: old ? old.pid : 0, state: old && old.state != "Log in again" ? old.state : "Idle"}
-            IniWrite(a.name, this.AccIni, u.id, "Name"), IniWrite(a.tracker, this.AccIni, u.id, "Tracker"), IniWrite(a.cookie, this.AccIni, u.id, "Cookie")
-            this.Log((old ? "Updated " : "Added ") a.name)
-            return this.Show()
+            this.LoginCookie := c.Value
+            this.LoginWv.CoreWebView2.ExecuteScriptAsync("fetch('https://users.roblox.com/v1/users/authenticated',{credentials:'include'})"
+                . ".then(r=>r.text()).then(t=>chrome.webview.postMessage(t)).catch(e=>chrome.webview.postMessage(''))")
+            return
         }
+    }
+
+    static GotUser(json) {
+        if !this.HasOwnProp("LoginWv") || this.LoginCookie = ""
+            || !RegExMatch(json, '"id"\s*:\s*(\d+)', &i) || !RegExMatch(json, '"name"\s*:\s*"([^"]+)"', &n)
+            return
+        cookie := this.LoginCookie, u := {id: i[1], name: n[1]}
+        this.EndLogin()
+        if !RbxUser(cookie)                           ; the app's own call (used by Play) said no: show Roblox's answer
+            this.Log("Note: Roblox answered the app with " RbxLast ". Play may not work for " u.name)
+        old := this.Accts.Has(u.id) ? this.Accts[u.id] : 0
+        a := this.Accts[u.id] := {name: u.name, tracker: old ? old.tracker : NewTracker(), cookie: Protect(cookie)
+            , pid: old ? old.pid : 0, state: old && old.state != "Log in again" ? old.state : "Idle"}
+        IniWrite(a.name, this.AccIni, u.id, "Name"), IniWrite(a.tracker, this.AccIni, u.id, "Tracker"), IniWrite(a.cookie, this.AccIni, u.id, "Cookie")
+        this.Log((old ? "Updated " : "Added ") a.name)
+        this.Show()
     }
 
     static EndLogin() {
@@ -316,7 +330,7 @@ class App {
             if !(game := this.Games[this.Link.Value])
                 return (a.state := "Idle", this.Log("Can't read the game link"))
             if !(ticket := RbxTicket(cookie))
-                return (a.state := "Log in again", this.Log(a.name ": login expired. Click Add account and log in to it again"))
+                return (a.state := "Log in again", this.Log(a.name ": Roblox gave no login ticket (" RbxLast "). Click Add account and log in to it again"))
             a.state := "Opening"
             Run('explorer.exe "' PlayLink(ticket, game, a.tracker) '"')
         }

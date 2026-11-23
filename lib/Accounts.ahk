@@ -1,6 +1,8 @@
 ; Roblox accounts: saved login cookie (DPAPI, only this Windows user can read it) -> one-time ticket -> launch.
 ; Same idea as Roblox Account Manager: auth.roblox.com ticket + roblox-player: link with browsertrackerid.
 
+global RbxLast := ""   ; last Roblox answer (status + short body), for the log
+
 ; Encrypt text for this Windows user. Returns base64.
 Protect(text) {
     inBuf := Buffer(StrPut(text, "UTF-8") - 1)
@@ -60,6 +62,7 @@ RbxHttp(method, url, cookie, body := "", csrf := "") {
     if csrf
         r.SetRequestHeader("X-CSRF-TOKEN", csrf)
     r.Send(body)
+    global RbxLast := "HTTP " r.Status " " SubStr(RegExReplace(r.ResponseText, "\s+", " "), 1, 120)   ; for the log when Roblox says no
     return r
 }
 
