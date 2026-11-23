@@ -1,5 +1,6 @@
 #Requires AutoHotkey v2.0
 #Include ..\lib\Core.ahk
+#Include ..\lib\Accounts.ahk
 ; Run: tools\AutoHotkey64.exe /ErrorStdOut tests\test.ahk   (prints results, exit code = failures)
 
 fails := 0
@@ -56,6 +57,25 @@ FileAppend("", dir "\0.748_" SubStr(t, 1, 8) "T" SubStr(t, 9) "Z_Player_BBBBB_Cr
 FileAppend("", dir "\0.748_20200101T000000Z_Player_CCCCC_last.log")
 Check(FindLog(me, dir) = good, "FindLog picks the log started with the process")
 DirDelete(dir, true)
+
+; Accounts: encryption, links, account match
+secret := "_|WARNING:-DO-NOT-SHARE-THIS.--fake-test-cookie-ąé"
+enc := Protect(secret)
+Check(enc != "" && !InStr(enc, "fake"), "cookie is encrypted")
+Check(Unprotect(enc) = secret, "cookie decrypts back")
+Check(Unprotect("bm90IGEgYmxvYg==") = "", "broken data gives nothing")
+Check(UrlEncode("a b&c=d/é") = "a%20b%26c%3Dd%2F%E9", "url encode")
+g := GameInfo("https://www.roblox.com/games/8304191830/x?privateServerLinkCode=abc-123")
+Check(g.place = "8304191830" && g.linkCode = "abc-123", "private server info")
+g2 := GameInfo("https://www.roblox.com/games/8304191830/Anime")
+Check(g2.place = "8304191830" && g2.linkCode = "", "public game info")
+Check(GameInfo("https://www.roblox.com/share?code=xyz&type=Server") = "", "share link needs a cookie")
+pl := PlayLink("TICKET", g, "123456654321")
+Check(RegExMatch(pl, "^roblox-player:1\+launchmode:play\+gameinfo:TICKET\+launchtime:\d{13}\+placelauncherurl:https%3A%2F%2Fassetgame"), "play link start")
+Check(InStr(pl, "RequestPrivateGame%26placeId%3D8304191830%26linkCode%3Dabc-123") && InStr(pl, "+browsertrackerid:123456654321+"), "play link game and tracker")
+Check(StrLen(NewTracker()) = 12, "tracker id is 12 digits")
+Check(InStr(CmdLine(me), "test.ahk"), "command line read")
+Check(RbxTicket("not-a-real-cookie") = "", "bad cookie gives no ticket")
 
 FileAppend(fails " failed`n", "*")
 ExitApp(fails)

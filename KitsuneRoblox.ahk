@@ -1,47 +1,65 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 #Include lib\Core.ahk
+#Include lib\Accounts.ahk
+#Include lib\WebView2\WebView2.ahk
 
-; KitsuneRoblox: anti-AFK, auto rejoin and multi-instance for Roblox clients in this Windows session.
+; KitsuneRoblox: accounts, anti-AFK, auto rejoin and multi-instance for Roblox clients in this Windows session.
 App.Init()
 
 class App {
     static Exe := "RobloxPlayerBeta.exe"
     static Win := "Roblox ahk_exe RobloxPlayerBeta.exe ahk_class WINDOWSCLIENT"
     static Ini := A_ScriptDir "\KitsuneRoblox.ini"
+    static AccIni := A_ScriptDir "\accounts.ini"    ; cookies are DPAPI-encrypted: only this Windows user can read them
     static Running := false
-    static Clients := Map()          ; pid -> {log, pos, state, outSince, born, freed}
-    static Poked := Map()            ; hwnd -> tick of last anti-AFK key
-    static Launch := 0, Fails := 0, Queue := 0, BeforeLaunch := Map(), Lines := []
+    static Accts := Map()           ; user id -> {name, tracker, cookie, pid, state}
+    static Clients := Map()         ; pid -> {acct, log, pos, state, outSince, born, freed}
+    static Poked := Map()           ; hwnd -> tick of last anti-AFK key
+    static Queue := [], Launching := 0, Fails := 0, Games := Map(), Rows := [], Lines := []
     static TickFn := ObjBindMethod(App, "Tick")
 
     static Init() {
         g := this.G := Gui("+MinSize", "KitsuneRoblox")
         g.BackColor := "191919"
-        g.SetFont("s10 cF2E6EE", "Noto Sans")
-        g.SetFont("s14 bold cFF9EC7")
-        g.AddText("w460", "KitsuneRoblox")
-        g.SetFont("s10 norm cF2E6EE")
+        DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", g.Hwnd, "UInt", 20, "Int*", 1, "UInt", 4)   ; dark title bar
+        g.SetFont("s14 bold cFF9EC7", "Noto Sans")
+        g.AddText("w480", "KitsuneRoblox")
+        g.SetFont("s10 norm cBFAFB8")
         g.AddText("y+8", "Game link (private server or game page)")
-        this.Link := g.AddEdit("w460 Background2A2228 cF2E6EE", IniRead(this.Ini, "Main", "Link", ""))
-        this.Afk := g.AddCheckbox("-Theme cF2E6EE y+12 Checked" IniRead(this.Ini, "Main", "AntiAfk", 1), "Anti-AFK every")
-        this.Mins := g.AddEdit("x+4 yp-3 w40 Number Background2A2228 cF2E6EE", IniRead(this.Ini, "Main", "Minutes", 15))
+        g.SetFont("cF2E6EE")
+        this.Link := g.AddEdit("w480 r1 -Wrap Background2A2228", IniRead(this.Ini, "Main", "Link", ""))
+
+        g.SetFont("cBFAFB8")
+        g.AddText("xm y+14", "Accounts")
+        g.SetFont("cF2E6EE")
+        this.LV := g.AddListView("xm w480 r6 Background221C20 -Multi -Hdr", ["Name", "State"])
+        this.LV.OnEvent("DoubleClick", (*) => this.Play())
+        g.SetFont("s10 c191919")
+        for b in [["Add account", (*) => this.AddAccount()], ["Play", (*) => this.Play()], ["Close", (*) => this.CloseOne()]
+                , ["Remove", (*) => this.Remove()], ["Play all", (*) => this.PlayAll()]]
+            g.AddButton((A_Index = 1 ? "xm" : "x+6") " w91 h30", b[1]).OnEvent("Click", b[2])
+
+        g.SetFont("cF2E6EE")
+        this.Afk := g.AddCheckbox("-Theme xm y+14 Checked" IniRead(this.Ini, "Main", "AntiAfk", 1), "Anti-AFK every")
+        this.Mins := g.AddEdit("x+4 yp-3 w40 Number Background2A2228", IniRead(this.Ini, "Main", "Minutes", 15))
         g.AddText("x+4 yp+3", "min, key")
-        this.Key := g.AddEdit("x+4 yp-3 w70 Background2A2228 cF2E6EE", IniRead(this.Ini, "Main", "Key", "Space"))
-        this.Rej := g.AddCheckbox("-Theme cF2E6EE xm y+10 Checked" IniRead(this.Ini, "Main", "Rejoin", 1), "Auto rejoin when a client disconnects or closes")
-        this.Multi := g.AddCheckbox("-Theme cF2E6EE xm y+6 Checked" IniRead(this.Ini, "Main", "Multi", 1), "Multi-instance (free Roblox's one-client lock)")
+        this.Key := g.AddEdit("x+4 yp-3 w70 Background2A2228", IniRead(this.Ini, "Main", "Key", "Space"))
+        this.Rej := g.AddCheckbox("-Theme xm y+10 Checked" IniRead(this.Ini, "Main", "Rejoin", 1), "Rejoin after a disconnect (not when you close it)")
+        this.Multi := g.AddCheckbox("-Theme xm y+6 Checked" IniRead(this.Ini, "Main", "Multi", 1), "Multi-instance (free Roblox's one-client lock)")
         g.SetFont("s11 bold c191919")
-        this.Btn := g.AddButton("xm y+12 w460 h34", "Start")
+        this.Btn := g.AddButton("xm y+12 w480 h34", "Start watching")
         this.Btn.OnEvent("Click", (*) => this.Running ? this.Stop("Stopped") : this.Start())
-        g.SetFont("s10 norm cF2E6EE")
-        this.LV := g.AddListView("xm w460 r5 Background221C20 cF2E6EE -Multi", ["PID", "State", "Log"])
-        this.Out := g.AddEdit("xm w460 r8 ReadOnly Background221C20 cBFAFB8")
+        g.SetFont("s9 norm cBFAFB8")
+        this.Out := g.AddEdit("xm w480 r7 ReadOnly Background221C20")
         g.OnEvent("Close", (*) => g.Hide())
         A_TrayMenu.Delete()
         A_TrayMenu.Add("Show", (*) => g.Show())
         A_TrayMenu.Add("Exit", (*) => ExitApp())
         A_TrayMenu.Default := "Show"
         OnExit((*) => this.Save())
+        this.LoadAccounts()
+        this.Show()
         g.Show()
         this.Log("Ready. Only Roblox clients in this Windows session (" SessionOf(DllCall("GetCurrentProcessId")) ") are touched")
     }
@@ -51,24 +69,146 @@ class App {
             IniWrite(c.Value, this.Ini, "Main", k)
     }
 
+    ; ---------- accounts ----------
+
+    static LoadAccounts() {
+        try for id in StrSplit(IniRead(this.AccIni), "`n")
+            this.Accts[id] := {name: IniRead(this.AccIni, id, "Name", id), tracker: IniRead(this.AccIni, id, "Tracker", NewTracker())
+                , cookie: IniRead(this.AccIni, id, "Cookie", ""), pid: 0, state: "Idle"}
+    }
+
+    static Selected() {
+        r := this.LV.GetNext()
+        return r && r <= this.Rows.Length ? this.Rows[r] : ""
+    }
+
+    ; A Roblox login page in its own fresh browser profile. You log in yourself; we keep only the cookie.
+    static AddAccount() {
+        if this.HasOwnProp("LoginGui")
+            return this.LoginGui.Show()
+        lg := this.LoginGui := Gui("+Owner" this.G.Hwnd " +Resize", "Log in to Roblox")
+        lg.BackColor := "191919"
+        lg.Show("w460 h680")
+        this.LoginDir := A_Temp "\KitsuneRoblox-login-" A_TickCount   ; new profile each time: never reuses a past login
+        try this.LoginWv := WebView2.CreateControllerAsync(lg.Hwnd, 0, this.LoginDir).await()
+        catch as e {
+            this.Log("Login window failed: " e.Message " (is the WebView2 runtime installed?)")
+            return this.EndLogin()
+        }
+        this.LoginWv.DefaultBackgroundColor := 0x191919FF
+        lg.OnEvent("Size", (*) => this.LoginWv.Fill())
+        lg.OnEvent("Close", (*) => this.EndLogin())
+        this.LoginWv.Fill()
+        this.LoginWv.CoreWebView2.Navigate("https://www.roblox.com/login")
+        this.LoginFn := ObjBindMethod(this, "CheckLogin")
+        SetTimer(this.LoginFn, 1500)
+        this.Log("Login window open: log in there yourself")
+    }
+
+    static CheckLogin() {
+        if this.HasOwnProp("LoginWv")
+            this.LoginWv.CoreWebView2.CookieManager.GetCookiesAsync("https://www.roblox.com").then(list => this.GotCookies(list))
+    }
+
+    static GotCookies(list) {
+        loop list.Count {
+            c := list.GetValueAtIndex(A_Index - 1)
+            if c.Name != ".ROBLOSECURITY" || !this.HasOwnProp("LoginWv")
+                continue
+            cookie := c.Value
+            this.EndLogin()
+            if !(u := RbxUser(cookie))
+                return this.Log("Login seen, but Roblox didn't accept it. Try again")
+            old := this.Accts.Has(u.id) ? this.Accts[u.id] : 0
+            a := this.Accts[u.id] := {name: u.name, tracker: old ? old.tracker : NewTracker(), cookie: Protect(cookie)
+                , pid: old ? old.pid : 0, state: old && old.state != "Log in again" ? old.state : "Idle"}
+            IniWrite(a.name, this.AccIni, u.id, "Name"), IniWrite(a.tracker, this.AccIni, u.id, "Tracker"), IniWrite(a.cookie, this.AccIni, u.id, "Cookie")
+            this.Log((old ? "Updated " : "Added ") a.name)
+            return this.Show()
+        }
+    }
+
+    static EndLogin() {
+        try SetTimer(this.LoginFn, 0)
+        try this.LoginWv.Close()
+        try this.LoginGui.Destroy()
+        for p in ["LoginWv", "LoginGui"]
+            try this.DeleteProp(p)
+        dir := this.LoginDir
+        SetTimer(() => (DirExist(dir) && DirDelete(dir, true)), -5000)   ; Edge lets go of the folder a moment later
+    }
+
+    static Remove() {
+        if (id := this.Selected()) = "" || InStr(id, "pid:")
+            return
+        if MsgBox("Remove " this.Accts[id].name "? (its client stays open)", "KitsuneRoblox", "YesNo Owner" this.G.Hwnd) != "Yes"
+            return
+        this.Log("Removed " this.Accts[id].name)
+        this.Accts.Delete(id), IniDelete(this.AccIni, id)
+        this.Show()
+    }
+
+    static Play(id := "") {
+        id := id || this.Selected()
+        if id = "" || InStr(id, "pid:")
+            return
+        a := this.Accts[id]
+        if a.pid
+            return this.Log(a.name " is already in game")
+        for q in this.Queue
+            if q = id
+                return
+        if !this.Running && !this.Start()
+            return
+        this.Queue.Push(id), a.state := "Waiting"
+        this.Show()
+    }
+
+    static PlayAll() {
+        for id, a in this.Accts
+            if !a.pid && a.state != "Log in again"
+                this.Play(id)
+    }
+
+    static CloseOne() {
+        if (id := this.Selected()) = ""
+            return
+        other := InStr(id, "pid:")
+        if !(pid := other ? Integer(SubStr(id, 5)) : this.Accts[id].pid)
+            return
+        this.Clients.Delete(pid)                      ; closed by you: never rejoined
+        ProcessClose(pid)
+        if !other
+            this.Free(id)
+        this.Log("Closed " (other ? "client " pid : this.Accts[id].name) " (no rejoin)")
+        this.Show()
+    }
+
+    ; ---------- watching ----------
+
     static Start() {
-        if this.Rej.Value && GameLink(this.Link.Value) = ""
-            return this.Log("Paste a game link first (needed for rejoin)")
+        if GameInfo(this.Link.Value) = "" && !RegExMatch(this.Link.Value, "share\?code=")
+            return (this.Log("Paste a game link first"), false)
         this.Save()
-        this.Running := true, this.Fails := 0, this.Launch := 0, this.Queue := 0, this.Clients := Map(), this.Poked := Map()
-        this.Btn.Text := "Stop"
-        this.Log("Started")
-        this.Tick()
+        this.Running := true, this.Fails := 0, this.Poked := Map()
+        this.Btn.Text := "Stop watching"
+        this.Log("Watching")
         SetTimer(this.TickFn, 5000)
+        SetTimer(this.TickFn, -10)                    ; first check right away, after the caller is done
+        return true
     }
 
     static Stop(why, alert := false) {
-        this.Running := false
+        this.Running := false, this.Queue := [], this.Launching := 0
         SetTimer(this.TickFn, 0)
-        this.Btn.Text := "Start"
+        for id, a in this.Accts
+            if a.state = "Waiting" || a.state = "Opening"
+                a.state := "Idle"
+        this.Btn.Text := "Start watching"
         this.Log(why)
         if alert
             SoundPlay("*48"), TrayTip(why, "KitsuneRoblox", 2), this.G.Show()
+        this.Show()
     }
 
     ; One check every 5 s. Cheap: one process list, new log bytes only.
@@ -76,36 +216,57 @@ class App {
         if !this.Running
             return
         if WinExist("ahk_class #32770 ahk_exe " this.Exe)      ; a Roblox popup (error, warning): a person must look
-            return this.Stop("STOPPED: Roblox shows a popup. Check it, then Start again", true)
-        now := SessionProcs(this.Exe), alive := Map()
-        for pid in now {
+            return this.Stop("STOPPED: Roblox shows a popup. Check it, then start again", true)
+        alive := Map()
+        for pid in SessionProcs(this.Exe) {
             alive[pid] := 1
-            if !this.Clients.Has(pid)
-                this.Clients[pid] := {log: "", pos: 0, state: "starting", outSince: 0, born: A_TickCount, freed: false}
+            if !this.Clients.Has(pid) {
+                acct := this.AcctOf(pid)
+                this.Clients[pid] := {acct: acct, log: "", pos: 0, state: "starting", outSince: 0, born: A_TickCount, freed: false}
+                if acct
+                    this.Accts[acct].pid := pid, this.Accts[acct].state := "In game"
+            }
         }
         for pid, c in this.Clients.Clone() {
-            if !alive.Has(pid) {
-                this.Clients.Delete(pid)
-                this.Log("Client " pid " closed")
-                if this.Rej.Value
-                    this.Queue++
+            if !alive.Has(pid) {                      ; closed by you or crashed: no rejoin
+                this.Clients.Delete(pid), this.Free(c.acct)
+                this.Log(this.Name(c.acct, pid) " closed (no rejoin)")
                 continue
             }
             if this.Multi.Value && !c.freed && A_TickCount - c.born < 60000
                 if c.freed := CloseSingleton(pid)
                     this.Log("Client " pid ": one-client lock freed")
             if this.ReadLog(pid, c) = "warn"
-                return this.Stop("STOPPED: client " pid " was kicked or warned. Check it, then Start again", true)
+                return this.Stop("STOPPED: " this.Name(c.acct, pid) " was kicked or warned. Check it, then start again", true)
             if this.Rej.Value && c.state = "out" && A_TickCount - c.outSince > 45000 {   ; 45 s: a teleport joins again before that
-                this.Log("Client " pid " disconnected: closing it to rejoin")
+                this.Log(this.Name(c.acct, pid) " disconnected: rejoining")
+                this.Clients.Delete(pid), this.Free(c.acct)
                 ProcessClose(pid)
-                this.Clients.Delete(pid), this.Queue++
+                this.Queue.Push(c.acct)               ; "" = a client not opened from an account: plain game link
+                if c.acct && this.Accts.Has(c.acct)
+                    this.Accts[c.acct].state := "Waiting"
             }
         }
-        this.Rejoin(alive)
+        this.Launch(alive)
         if this.Afk.Value
             this.AntiAfk()
         this.Show()
+    }
+
+    static Name(acct, pid) => acct && this.Accts.Has(acct) ? this.Accts[acct].name : "Client " pid
+
+    static Free(acct) {
+        if acct && this.Accts.Has(acct)
+            this.Accts[acct].pid := 0, this.Accts[acct].state := "Idle"
+    }
+
+    ; Which saved account a client belongs to: our browsertrackerid is in its command line.
+    static AcctOf(pid) {
+        cmd := CmdLine(pid)
+        for id, a in this.Accts
+            if RegExMatch(cmd, "(-b |browsertrackerid:)" a.tracker "\b")
+                return id
+        return ""
     }
 
     static ReadLog(pid, c) {
@@ -123,35 +284,53 @@ class App {
         return s
     }
 
-    ; One launch at a time; stop after 3 launches that didn't open a client.
-    static Rejoin(alive) {
-        if this.Launch {
+    ; One launch at a time; stop after 3 launches in a row that didn't open a client.
+    static Launch(alive) {
+        if (l := this.Launching) {
             for pid in alive
-                if !this.BeforeLaunch.Has(pid)
-                    return (this.Launch := 0, this.Fails := 0, this.Queue := Max(this.Queue - 1, 0), this.Log("Rejoined: client " pid))
-            if A_TickCount - this.Launch < 90000
+                if !l.before.Has(pid) && (l.acct = "" || this.Clients.Has(pid) && this.Clients[pid].acct = l.acct)
+                    return (this.Launching := 0, this.Fails := 0, this.Log("In game: " this.Name(l.acct, pid)))
+            if A_TickCount - l.at < 90000
                 return
-            this.Launch := 0
+            this.Launching := 0
             if ++this.Fails >= 3
                 return this.Stop("STOPPED: Roblox didn't open 3 times. Check the screen", true)
             this.Log("Roblox didn't open. Trying again")
+            this.Queue.InsertAt(1, l.acct)
         }
-        if this.Queue <= 0
+        if !this.Queue.Length
             return
+        acct := this.Queue.RemoveAt(1)
         for pid in SessionProcs("Fishstrap.exe")      ; a launcher stuck on a popup blocks the next launch
             ProcessClose(pid)
-        this.BeforeLaunch := alive, this.Launch := A_TickCount
-        this.Log("Opening the game")
-        Run('explorer.exe "' GameLink(this.Link.Value) '"')
+        if acct = "" {
+            if (link := GameLink(this.Link.Value)) = ""
+                return this.Log("Can't rejoin: the game link isn't a link I can open")
+            Run('explorer.exe "' link '"')
+        } else {
+            if !this.Accts.Has(acct)
+                return
+            a := this.Accts[acct], cookie := Unprotect(a.cookie)
+            if !this.Games.Has(this.Link.Value) || !this.Games[this.Link.Value]
+                this.Games[this.Link.Value] := GameInfo(this.Link.Value, cookie)
+            if !(game := this.Games[this.Link.Value])
+                return (a.state := "Idle", this.Log("Can't read the game link"))
+            if !(ticket := RbxTicket(cookie))
+                return (a.state := "Log in again", this.Log(a.name ": login expired. Click Add account and log in to it again"))
+            a.state := "Opening"
+            Run('explorer.exe "' PlayLink(ticket, game, a.tracker) '"')
+        }
+        this.Launching := {acct: acct, at: A_TickCount, before: alive}
+        this.Log("Opening " (acct ? this.Accts[acct].name : "the game"))
     }
 
     ; Roblox kicks after 20 min with no input. Background key messages don't count, so focus each
     ; window for a moment, tap one key, then give focus back.
     static AntiAfk() {
-        every := Max(this.Mins.Value, 1) * 60000
+        every := Max(this.Mins.Value, 1) * 60000, me := SessionOf(DllCall("GetCurrentProcessId"))
         due := []
         for hwnd in WinGetList(this.Win) {
-            if SessionOf(WinGetPID(hwnd)) != SessionOf(DllCall("GetCurrentProcessId"))
+            if SessionOf(WinGetPID(hwnd)) != me
                 continue
             if !this.Poked.Has(hwnd) || WinActive(hwnd) && A_TimeIdlePhysical < 5000   ; you're playing it: that counts
                 this.Poked[hwnd] := A_TickCount
@@ -173,10 +352,14 @@ class App {
     }
 
     static Show() {
-        this.LV.Delete()
+        sel := this.Selected()
+        this.LV.Opt("-Redraw"), this.LV.Delete(), this.Rows := []
+        for id, a in this.Accts
+            this.LV.Add(id = sel ? "Select" : "", a.name, a.state (a.pid ? "  (" a.pid ")" : "")), this.Rows.Push(id)
         for pid, c in this.Clients
-            this.LV.Add(, pid, c.state (c.freed ? ", multi ok" : ""), c.log ? "found" : "-")
-        this.LV.ModifyCol(1, 80), this.LV.ModifyCol(2, 220), this.LV.ModifyCol(3, 120)
+            if !c.acct
+                this.LV.Add("pid:" pid = sel ? "Select" : "", "Other client", c.state "  (" pid ")"), this.Rows.Push("pid:" pid)
+        this.LV.ModifyCol(1, 220), this.LV.ModifyCol(2, 240), this.LV.Opt("+Redraw")
     }
 
     static Log(msg) {
