@@ -227,7 +227,7 @@ class App {
         this.Btn.Text := "Stop watching"
         this.Log("Watching")
         SetTimer(this.TickFn, 5000)
-        SetTimer(this.TickFn, -10)                    ; first check right away, after the caller is done
+        SetTimer(() => this.Tick(), -10)              ; first check right away (a new function: reusing TickFn would replace the 5 s timer)
         return true
     }
 
