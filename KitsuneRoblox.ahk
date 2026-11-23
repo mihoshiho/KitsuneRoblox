@@ -441,7 +441,10 @@ class App {
         every := Max(this.Mins.Value, 1) * 60000, me := SessionOf(DllCall("GetCurrentProcessId"))
         due := []
         for hwnd in WinGetList(this.Win) {
-            if SessionOf(WinGetPID(hwnd)) != me
+            try pid := WinGetPID(hwnd)
+            catch                                     ; window closed while we looked (rejoin, crash)
+                continue
+            if SessionOf(pid) != me
                 continue
             if !this.Poked.Has(hwnd) || WinActive(hwnd) && A_TimeIdlePhysical < 5000   ; you're playing it: that counts
                 this.Poked[hwnd] := A_TickCount
@@ -452,7 +455,9 @@ class App {
             return
         back := WinExist("A")
         for hwnd in due {
-            WinActivate(hwnd)
+            try WinActivate(hwnd)
+            catch
+                continue
             if WinWaitActive(hwnd, , 1) {
                 Send("{" this.Key.Value " down}"), Sleep(60), Send("{" this.Key.Value " up}")
                 this.Poked[hwnd] := A_TickCount
