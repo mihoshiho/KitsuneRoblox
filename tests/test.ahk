@@ -67,5 +67,19 @@ Check(PlayPage("hello") = "", "not a link")
 Check(StrLen(NewTracker()) = 12, "tracker id is 12 digits")
 Check(InStr(CmdLine(me), "test.ahk"), "command line read")
 
+; Edge: found, profile prefs, own-profile process filter
+Check(FileExist(EdgeExe()), "Edge found")
+dir := A_Temp "\kr-edge-" me
+AllowRoblox(dir)
+Check(InStr(FileRead(dir "\Default\Preferences"), '{"protocol_handler":{"allowed_origin_protocol_pairs":{"https://www.roblox.com":{"roblox-player":true}}}}'), "new profile: Roblox links allowed")
+FileOpen(dir "\Default\Preferences", "w", "UTF-8-RAW").Write('{"browser":{"x":1}}')
+AllowRoblox(dir)
+t := FileRead(dir "\Default\Preferences")
+Check(InStr(t, '"roblox-player":true}}},"browser":{"x":1}}'), "old prefs kept, Roblox links added")
+AllowRoblox(dir)
+Check(FileRead(dir "\Default\Preferences") = t, "second call changes nothing")
+DirDelete(dir, true)
+Check(!EdgeProcs(dir).Length, "no Edge on a test profile")
+
 FileAppend(fails " failed`n", "*")
 ExitApp(fails)

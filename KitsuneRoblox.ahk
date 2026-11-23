@@ -17,7 +17,7 @@ class App {
     static Accts := Map()           ; user id -> {name, tracker, profile, pid, state}
     static Clients := Map()         ; pid -> {acct, log, pos, state, outSince, born, freed}
     static Poked := Map()           ; hwnd -> tick of last anti-AFK key
-    static Queue := [], Launching := 0, Fails := 0, Rows := [], Lines := [], PlayTok := 0
+    static Queue := [], Launching := 0, Fails := 0, Rows := [], Lines := []
     static TickFn := ObjBindMethod(App, "Tick")
 
     static Init() {
@@ -232,7 +232,7 @@ class App {
     }
 
     static Stop(why, alert := false) {
-        this.Running := false, this.Queue := [], this.Launching := 0
+        this.Running := false, this.Queue := [], this.EndLaunch()
         SetTimer(this.TickFn, 0)
         for id, a in this.Accts
             if a.state = "Waiting" || a.state = "Opening"
@@ -321,11 +321,15 @@ class App {
     static Launch(alive) {
         if (l := this.Launching) {
             for pid in alive
-                if !l.before.Has(pid) && (l.acct = "" || this.Clients.Has(pid) && this.Clients[pid].acct = l.acct)
-                    return (this.Launching := 0, this.Fails := 0, this.Log("In game: " this.Name(l.acct, pid)))
+                if !l.before.Has(pid) && this.Clients.Has(pid) && (l.acct = "" || this.Clients[pid].acct = l.acct || this.Clients[pid].acct = "") {
+                    if l.acct && this.Clients[pid].acct = ""
+                        this.Own(pid, l.acct)         ; shortcut: a client you open yourself in this moment gets this account too
+                    this.EndLaunch()
+                    return (this.Fails := 0, this.Log("In game: " this.Name(l.acct, pid)))
+                }
             if A_TickCount - l.at < 90000
                 return
-            this.Launching := 0
+            this.EndLaunch()
             if ++this.Fails >= 3
                 return this.Stop("STOPPED: Roblox didn't open 3 times. Check the screen", true)
             this.Log("Roblox didn't open. Trying again")
@@ -333,7 +337,7 @@ class App {
         }
         if !this.Queue.Length
             return
-        acct := this.Queue.RemoveAt(1)
+        acct := this.Queue.RemoveAt(1), dir := ""
         for pid in SessionProcs("Fishstrap.exe")      ; a launcher stuck on a popup blocks the next launch
             ProcessClose(pid)
         if acct = "" {
@@ -346,57 +350,41 @@ class App {
             a := this.Accts[acct]
             if a.profile = "" || !DirExist(this.Profiles "\" a.profile)
                 return (a.state := "Log in again", this.Log(a.name ": click Add account and log in to it again"))
+            if (exe := EdgeExe()) = ""
+                return (a.state := "Idle", this.Log("Can't find Edge"))
+            dir := this.Profiles "\" a.profile "\EBWebView"   ; the login window's browser data: Edge reads it as is
+            if !EdgeProcs(dir).Length
+                AllowRoblox(dir)
             a.state := "Opening"
-            this.OpenPlayPage(acct)
+            Run('"' exe '" --user-data-dir=' dir ' --no-first-run --no-default-browser-check --new-window "' PlayPage(this.Link.Value) '"')
         }
-        this.Launching := {acct: acct, at: A_TickCount, before: alive}
+        this.Launching := {acct: acct, at: A_TickCount, before: alive, edge: dir}
         this.Log("Opening " (acct ? this.Accts[acct].name : "the game"))
     }
 
-    ; Roblox's own website starts the game in this account's saved browser (it makes the login ticket itself,
-    ; with its security key). We catch the roblox-player: link it opens and hand it to Fishstrap.
-    static OpenPlayPage(acct) {
-        this.EndPlay()
-        a := this.Accts[acct]
-        pg := this.PlayGui := Gui("+Owner" this.G.Hwnd, "Opening " a.name "...")
-        pg.BackColor := "191919"
-        pg.Show("w420 h520 NoActivate")
-        try wv := this.PlayWv := WebView2.CreateControllerAsync(pg.Hwnd, 0, this.Profiles "\" a.profile).await()
-        catch as e
-            return (this.EndPlay(), this.Log("Browser for " a.name " failed: " e.Message))
-        wv.DefaultBackgroundColor := 0x191919FF
-        wv.Fill()
-        onNav := (s, args) => this.GotPlayLink(acct, args)   ; the site opens roblox-player: as a page or in an iframe
-        wv.CoreWebView2.add_NavigationStarting(onNav)
-        wv.CoreWebView2.add_FrameNavigationStarting(onNav)
-        wv.CoreWebView2.Navigate(PlayPage(this.Link.Value))
-        ; shortcut: if the page doesn't start the game by itself, click its Play button (selector is a guess)
-        tok := this.PlayTok := A_TickCount
-        this.PlayFn := () => this.HasOwnProp("PlayWv") && this.PlayWv.CoreWebView2.ExecuteScriptAsync(
-            "(document.querySelector('[data-testid=play-button],.btn-common-play-game-lg,#game-details-play-button-container button')||{click(){}}).click()")
-        SetTimer(this.PlayFn, -15000)
-        SetTimer(() => this.PlayTok = tok && this.EndPlay(), -60000)   ; never leave it open
-    }
-
-    static GotPlayLink(acct, args) {
-        uri := args.Uri
-        if !RegExMatch(uri, "i)^roblox(-player)?:")
+    ; The new client is this account's. Its browsertrackerid (Edge profile's own) finds it again after a restart.
+    static Own(pid, acct) {
+        if !this.Accts.Has(acct)
             return
-        args.Cancel := true
-        if this.Accts.Has(acct) && RegExMatch(uri, "browsertrackerid:(\d+)", &m)   ; how we know this account's client later
-            this.Accts[acct].tracker := m[1], IniWrite(m[1], this.AccIni, acct, "Tracker")
-        Run('explorer.exe "' uri '"')
-        this.Log("Roblox site gave the game link for " this.Name(acct, 0))
-        tok := this.PlayTok
-        SetTimer(() => this.PlayTok = tok && this.EndPlay(), -3000)
+        a := this.Accts[acct], this.Clients[pid].acct := acct, a.pid := pid, a.state := "In game"
+        if RegExMatch(CmdLine(pid), "browsertrackerid:(\d+)", &m)
+            a.tracker := m[1], IniWrite(m[1], this.AccIni, acct, "Tracker")
     }
 
-    static EndPlay() {
-        try SetTimer(this.PlayFn, 0)
-        try this.PlayWv.Close()
-        try this.PlayGui.Destroy()
-        for p in ["PlayWv", "PlayGui"]
-            try this.DeleteProp(p)
+    ; Launch over: close the account's Edge (asks its windows first, then ends what is left).
+    static EndLaunch() {
+        dir := this.Launching ? this.Launching.edge : ""
+        this.Launching := 0
+        if dir = ""
+            return
+        for pid in EdgeProcs(dir)
+            try WinClose("ahk_pid " pid)
+        SetTimer(() => this.KillEdge(dir), -5000)
+    }
+
+    static KillEdge(dir) {
+        for pid in EdgeProcs(dir)
+            try ProcessClose(pid)
     }
 
     ; Roblox kicks after 20 min with no input. Background key messages don't count, so focus each
