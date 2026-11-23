@@ -269,11 +269,11 @@ class App {
                 c.gone := c.gone || A_TickCount
                 if this.Rej.Value && (Crashed(pid) || c.log != "" && Hung(c.log)) {   ; crash report, or Roblox ended it frozen
                     this.Log(this.Name(c.acct, pid) " crashed: rejoining")
-                    this.Clients.Delete(pid), this.Free(c.acct), this.Queue.Push(c.acct)
+                    this.Clients.Delete(pid), this.Free(c.acct, pid), this.Queue.Push(c.acct)
                     if c.acct && this.Accts.Has(c.acct)
                         this.Accts[c.acct].state := "Waiting"
                 } else if A_TickCount - c.gone > 15000 {
-                    this.Clients.Delete(pid), this.Free(c.acct)
+                    this.Clients.Delete(pid), this.Free(c.acct, pid)
                     this.Log(this.Name(c.acct, pid) " closed (no rejoin)")
                 }
                 continue
@@ -285,7 +285,7 @@ class App {
                 return this.Stop("STOPPED: " this.Name(c.acct, pid) " was kicked or warned. Check it, then start again", true)
             if this.Rej.Value && c.state = "out" && A_TickCount - c.outSince > 45000 {   ; 45 s: a teleport joins again before that
                 this.Log(this.Name(c.acct, pid) " disconnected: rejoining")
-                this.Clients.Delete(pid), this.Free(c.acct)
+                this.Clients.Delete(pid), this.Free(c.acct, pid)
                 ProcessClose(pid)
                 this.Queue.Push(c.acct)               ; "" = a client not opened from an account: plain game link
                 if c.acct && this.Accts.Has(c.acct)
@@ -316,8 +316,9 @@ class App {
 
     static Name(acct, pid) => acct && this.Accts.Has(acct) ? this.Accts[acct].name : "Client " pid
 
-    static Free(acct) {
-        if acct && this.Accts.Has(acct)
+    ; Account back to Idle. With a pid: only if that is still the account's client (a newer one may be in game).
+    static Free(acct, pid := 0) {
+        if acct && this.Accts.Has(acct) && (!pid || this.Accts[acct].pid = pid)
             this.Accts[acct].pid := 0, this.Accts[acct].state := "Idle"
     }
 
