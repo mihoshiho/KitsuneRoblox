@@ -312,7 +312,7 @@ class App {
         if c.log = "" && !(c.log := FindLog(pid))
             return ""
         try {
-            f := FileOpen(c.log, "r-", "UTF-8")       ; Roblox keeps writing; we only read the new part
+            f := FileOpen(c.log, "r", "UTF-8")        ; shared read: Roblox keeps writing. "r-" locked it and always failed
             f.Pos := c.pos, text := f.Read(), c.pos := f.Pos, f.Close()
         } catch
             return ""
