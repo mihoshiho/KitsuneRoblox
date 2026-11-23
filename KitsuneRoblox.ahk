@@ -343,9 +343,8 @@ class App {
         }
         if !this.Queue.Length
             return
+        ; never close Fishstrap here: it holds ROBLOX_singletonMutex, and killing it made every open client quit
         acct := this.Queue.RemoveAt(1), dir := ""
-        for pid in SessionProcs("Fishstrap.exe")      ; a launcher stuck on a popup blocks the next launch
-            ProcessClose(pid)
         if acct = "" {
             if (link := GameLink(this.Link.Value)) = ""
                 return this.Log("Can't rejoin: the game link isn't a link I can open")
