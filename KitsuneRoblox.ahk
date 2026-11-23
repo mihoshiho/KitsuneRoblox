@@ -48,6 +48,9 @@ class App {
         this.Key := g.AddEdit("x+4 yp-3 w70 Background2A2228", IniRead(this.Ini, "Main", "Key", "Space"))
         this.Rej := g.AddCheckbox("-Theme xm y+10 Checked" IniRead(this.Ini, "Main", "Rejoin", 1), "Rejoin after a disconnect (not when you close it)")
         this.Multi := g.AddCheckbox("-Theme xm y+6 Checked" IniRead(this.Ini, "Main", "Multi", 1), "Multi-instance (free Roblox's one-client lock)")
+        g.AddText("xm y+10", "RAM limit per client")
+        this.Ram := g.AddEdit("x+6 yp-3 w40 Number Background2A2228", IniRead(this.Ini, "Main", "RamGB", 2))
+        g.AddText("x+4 yp+3", "GB (soft: extra goes to disk, empty = off)")
         g.SetFont("s11 bold c191919")
         this.Btn := g.AddButton("xm y+12 w480 h34", "Start watching")
         this.Btn.OnEvent("Click", (*) => this.Running ? this.Stop("Stopped") : this.Start())
@@ -66,7 +69,7 @@ class App {
     }
 
     static Save() {
-        for k, c in Map("Link", this.Link, "AntiAfk", this.Afk, "Minutes", this.Mins, "Key", this.Key, "Rejoin", this.Rej, "Multi", this.Multi)
+        for k, c in Map("Link", this.Link, "AntiAfk", this.Afk, "Minutes", this.Mins, "Key", this.Key, "Rejoin", this.Rej, "Multi", this.Multi, "RamGB", this.Ram)
             IniWrite(c.Value, this.Ini, "Main", k)
     }
 
@@ -258,6 +261,8 @@ class App {
                 this.Clients[pid] := {acct: acct, log: "", pos: 0, state: "starting", outSince: 0, born: A_TickCount, freed: false}
                 if acct
                     this.Accts[acct].pid := pid, this.Accts[acct].state := "In game"
+                if (gb := this.Ram.Value) > 0       ; shortcut: a new value applies to clients opened after it
+                    this.Log("Client " pid ": " (LimitRam(pid, gb * 1024) ? "RAM limit " gb " GB" : "can't limit RAM (Roblox refused)"))
             }
         }
         for pid, c in this.Clients.Clone() {

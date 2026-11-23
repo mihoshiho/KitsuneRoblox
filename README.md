@@ -7,6 +7,8 @@ Small tray tool for Roblox clients in your own Windows session:
 - **Auto rejoin**: after a disconnect it opens the game again with the same account. If you close a client yourself, it does not rejoin. Stops after 3 failed launches.
 - **Multi-instance**: frees Roblox's one-client lock (closes the `ROBLOX_singletonEvent` handle, like Process Explorer's "Close Handle"), so more clients can open.
 
+- **RAM limit**: soft cap per client (default 2 GB). Extra memory goes to disk, so no crash, only slower.
+
 It stops and beeps if Roblox shows a popup or a kick message.
 
 Needs: Windows, WebView2 runtime (comes with Windows 11), AutoHotkey v2 at `tools\AutoHotkey64.exe` (not in git; copy it from KitsuneMacro). Start with `run.bat`.

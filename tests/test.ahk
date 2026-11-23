@@ -81,5 +81,14 @@ Check(FileRead(dir "\Default\Preferences") = t, "second call changes nothing")
 DirDelete(dir, true)
 Check(!EdgeProcs(dir).Length, "no Edge on a test profile")
 
+; Soft RAM cap on this process: 300 MB touched, real memory stays near 100 MB
+Check(LimitRam(me, 100), "RAM limit set")
+big := Buffer(300 << 20)
+loop (300 << 20) // 4096
+    NumPut("UChar", 1, big, (A_Index - 1) * 4096)
+Check(RamOf(me) <= 110, "RAM stays under limit (" RamOf(me) " MB)")
+big := 0
+Check(!LimitRam(999999, 100), "bad pid: no limit")
+
 FileAppend(fails " failed`n", "*")
 ExitApp(fails)

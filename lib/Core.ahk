@@ -116,3 +116,23 @@ FindLog(pid, dir := "") {
     }
     return best
 }
+
+; Soft RAM cap: Windows keeps at most mb of the process in real memory and pages the rest to disk.
+; No crash when the game needs more, only slower. Returns true when Windows took it.
+LimitRam(pid, mb) {
+    if !(h := DllCall("OpenProcess", "UInt", 0x1100, "Int", 0, "UInt", pid, "Ptr"))   ; SET_QUOTA | QUERY_LIMITED_INFORMATION
+        return false
+    ok := DllCall("SetProcessWorkingSetSizeEx", "Ptr", h, "UPtr", 64 << 20, "UPtr", mb << 20, "UInt", 0x6)   ; MIN_DISABLE | MAX_ENABLE
+    DllCall("CloseHandle", "Ptr", h)
+    return ok
+}
+
+; Real memory a process uses now, in MB.
+RamOf(pid) {
+    if !(h := DllCall("OpenProcess", "UInt", 0x1000, "Int", 0, "UInt", pid, "Ptr"))
+        return 0
+    pmc := Buffer(80, 0), NumPut("UInt", 80, pmc)
+    DllCall("psapi\GetProcessMemoryInfo", "Ptr", h, "Ptr", pmc, "UInt", 80)
+    DllCall("CloseHandle", "Ptr", h)
+    return NumGet(pmc, 16, "UPtr") >> 20                ; WorkingSetSize
+}
