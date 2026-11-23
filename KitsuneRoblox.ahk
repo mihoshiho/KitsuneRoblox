@@ -15,7 +15,7 @@ class App {
     static Running := false
     static Profiles := EnvGet("LOCALAPPDATA") "\KitsuneRoblox\profiles"   ; one saved login browser per account (Edge encrypts it)
     static Accts := Map()           ; user id -> {name, tracker, profile, pid, state}
-    static Clients := Map()         ; pid -> {acct, log, pos, state, outSince, born, freed}
+    static Clients := Map()         ; pid -> {acct, log, pos, state, outSince, born, freed, gone}
     static Poked := Map()           ; hwnd -> tick of last anti-AFK key
     static Queue := [], Launching := 0, Fails := 0, Rows := [], Lines := []
     static TickFn := ObjBindMethod(App, "Tick")
@@ -259,7 +259,7 @@ class App {
             alive[pid] := 1
             if !this.Clients.Has(pid) {
                 acct := this.AcctOf(pid)
-                this.Clients[pid] := {acct: acct, log: "", pos: 0, state: "starting", outSince: 0, born: A_TickCount, freed: false}
+                this.Clients[pid] := {acct: acct, log: "", pos: 0, state: "starting", outSince: 0, born: A_TickCount - AgeOf(pid) * 1000, freed: false, gone: 0}
                 if acct
                     this.Accts[acct].pid := pid, this.Accts[acct].state := "In game"
                 if (gb := this.Ram.Value) > 0       ; shortcut: a new value applies to clients opened after it
@@ -267,9 +267,17 @@ class App {
             }
         }
         for pid, c in this.Clients.Clone() {
-            if !alive.Has(pid) {                      ; closed by you or crashed: no rejoin
-                this.Clients.Delete(pid), this.Free(c.acct)
-                this.Log(this.Name(c.acct, pid) " closed (no rejoin)")
+            if !alive.Has(pid) {                      ; crash report = rejoin; none after 15 s = you closed it
+                c.gone := c.gone || A_TickCount
+                if this.Rej.Value && Crashed(pid) {
+                    this.Log(this.Name(c.acct, pid) " crashed: rejoining")
+                    this.Clients.Delete(pid), this.Free(c.acct), this.Queue.Push(c.acct)
+                    if c.acct && this.Accts.Has(c.acct)
+                        this.Accts[c.acct].state := "Waiting"
+                } else if A_TickCount - c.gone > 15000 {
+                    this.Clients.Delete(pid), this.Free(c.acct)
+                    this.Log(this.Name(c.acct, pid) " closed (no rejoin)")
+                }
                 continue
             }
             if this.Multi.Value && !c.freed && A_TickCount - c.born < 60000

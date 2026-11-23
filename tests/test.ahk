@@ -95,5 +95,15 @@ Check(RamOf(me) <= 110, "RAM stays under limit (" RamOf(me) " MB)")
 big := 0
 Check(!LimitRam(999999, 100), "bad pid: no limit")
 
+; Crash report found by pid (line copied from a real Roblox crash handler log)
+dir := A_Temp "\kr-crash-" me
+DirCreate(dir)
+FileAppend("[FLog::CrashpadHandlerLog] WARNING duplicate key PID, discarding value 48876`r`n", dir "_Player_X_CrashHandler_last.log")
+FileAppend("normal crash handler log", dir "_Player_Y_CrashHandler_last.log")
+Check(Crashed(48876, dir), "crash report found")
+Check(!Crashed(4887, dir) && !Crashed(488760, dir), "other pids: no crash")
+DirDelete(dir, true)
+Check(AgeOf(me) < 10, "process age read")
+
 FileAppend(fails " failed`n", "*")
 ExitApp(fails)

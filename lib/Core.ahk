@@ -137,3 +137,23 @@ RamOf(pid) {
     DllCall("CloseHandle", "Ptr", h)
     return NumGet(pmc, 16, "UPtr") >> 20                ; WorkingSetSize
 }
+
+; Seconds since a process started (0 if it can't be read).
+AgeOf(pid) {
+    if !(h := DllCall("OpenProcess", "UInt", 0x1000, "Int", 0, "UInt", pid, "Ptr"))
+        return 0
+    ft := 0, x := 0, now := 0
+    DllCall("GetProcessTimes", "Ptr", h, "Int64*", &ft, "Int64*", &x, "Int64*", &x, "Int64*", &x), DllCall("CloseHandle", "Ptr", h)
+    DllCall("GetSystemTimeAsFileTime", "Int64*", &now)
+    return ft ? (now - ft) // 10000000 : 0
+}
+
+; Roblox's crash handler wrote a crash report for this pid in the last 3 minutes.
+Crashed(pid, dir := "") {
+    dir := dir || EnvGet("LOCALAPPDATA") "\Roblox\logs"
+    loop files dir "\*CrashHandler*.log"
+        if DateDiff(A_Now, A_LoopFileTimeModified, "Seconds") < 180
+            try if RegExMatch(FileRead(A_LoopFilePath), "duplicate key PID, discarding value " pid "\b")
+                return true
+    return false
+}
