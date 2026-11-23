@@ -42,6 +42,11 @@ Check(LogState(join) = "in", "join = in")
 Check(LogState(join "`n" gone) = "out", "join then disconnect = out")
 Check(LogState(gone "`n" join) = "in", "teleport (disconnect then join) = in")
 Check(LogState("noise line") = "", "nothing new")
+; real error 256 "Lost connection" ending: join, then disconnect with no "Time to disconnect" after it
+lost := join "`n2026-11-23T20:00:59.894Z,6522.894043,bd00,6,Info [DFLog::NetworkClient] Client:Disconnect"
+    . "`n2026-11-23T20:01:06.820Z,6529.820312,789c,7 [FLog::Network] Client has been disconnected with reason: Disconnected from game, please reconnect"
+Check(LogState(lost) = "out", "lost connection (error 256) = out")
+Check(LogState(lost "`n" join) = "in", "teleport after Client:Disconnect = in")
 Check(LogState(gone "`nDisconnection: You were kicked from this experience (Error Code: 267)") = "warn", "kick = warn")
 Check(LogState("[FLog::Output] Player kicked a ball") = "", "game chat 'kicked' alone is not a warn")
 
