@@ -11,12 +11,13 @@ class App {
     static Exe := "RobloxPlayerBeta.exe"
     static Win := "Roblox ahk_exe RobloxPlayerBeta.exe ahk_class WINDOWSCLIENT"
     static Ini := A_ScriptDir "\KitsuneRoblox.ini"
-    static AccIni := A_ScriptDir "\accounts.ini"    ; cookies are DPAPI-encrypted: only this Windows user can read them
+    static AccIni := A_ScriptDir "\accounts.ini"    ; names and ids only: the logins live in the profiles below
     static Running := false
-    static Accts := Map()           ; user id -> {name, tracker, cookie, pid, state}
+    static Profiles := EnvGet("LOCALAPPDATA") "\KitsuneRoblox\profiles"   ; one saved login browser per account (Edge encrypts it)
+    static Accts := Map()           ; user id -> {name, tracker, profile, pid, state}
     static Clients := Map()         ; pid -> {acct, log, pos, state, outSince, born, freed}
     static Poked := Map()           ; hwnd -> tick of last anti-AFK key
-    static Queue := [], Launching := 0, Fails := 0, Games := Map(), Rows := [], Lines := []
+    static Queue := [], Launching := 0, Fails := 0, Rows := [], Lines := [], PlayTok := 0
     static TickFn := ObjBindMethod(App, "Tick")
 
     static Init() {
@@ -72,9 +73,12 @@ class App {
     ; ---------- accounts ----------
 
     static LoadAccounts() {
-        try for id in StrSplit(IniRead(this.AccIni), "`n")
+        try for id in StrSplit(IniRead(this.AccIni), "`n") {
+            try IniDelete(this.AccIni, id, "Cookie")  ; older versions kept a cookie copy: not needed now
             this.Accts[id] := {name: IniRead(this.AccIni, id, "Name", id), tracker: IniRead(this.AccIni, id, "Tracker", NewTracker())
-                , cookie: IniRead(this.AccIni, id, "Cookie", ""), pid: 0, state: "Idle"}
+                , profile: p := IniRead(this.AccIni, id, "Profile", ""), pid: 0
+                , state: p != "" && DirExist(this.Profiles "\" p) ? "Idle" : "Log in again"}
+        }
     }
 
     ; Ids of every selected row (accounts, or "pid:<n>" for other clients).
@@ -90,15 +94,15 @@ class App {
             this.%method%(id)
     }
 
-    ; A Roblox login page in its own fresh browser profile. You log in yourself; we keep only the cookie.
+    ; A Roblox login page in a new browser profile. You log in yourself. The profile is kept for Play.
     static AddAccount() {
         if this.HasOwnProp("LoginGui")
             return this.LoginGui.Show()
         lg := this.LoginGui := Gui("+Owner" this.G.Hwnd " +Resize", "Log in to Roblox")
         lg.BackColor := "191919"
         lg.Show("w460 h680")
-        this.LoginDir := A_Temp "\KitsuneRoblox-login-" A_TickCount   ; new profile each time: never reuses a past login
-        try this.LoginWv := WebView2.CreateControllerAsync(lg.Hwnd, 0, this.LoginDir).await()
+        this.LoginProfile := "p" A_TickCount          ; new profile: never reuses a past login
+        try this.LoginWv := WebView2.CreateControllerAsync(lg.Hwnd, 0, this.Profiles "\" this.LoginProfile).await()
         catch as e {
             this.Log("Login window failed: " e.Message " (is the WebView2 runtime installed?)")
             return this.EndLogin()
@@ -107,7 +111,7 @@ class App {
         lg.OnEvent("Size", (*) => this.LoginWv.Fill())
         lg.OnEvent("Close", (*) => this.EndLogin())
         this.LoginWv.Fill()
-        this.LoginCookie := ""
+        this.LoginSeen := false
         this.LoginWv.CoreWebView2.add_WebMessageReceived((sender, args) => this.GotUser(args.TryGetWebMessageAsString()))
         this.LoginWv.CoreWebView2.Navigate("https://www.roblox.com/login")
         this.LoginFn := ObjBindMethod(this, "CheckLogin")
@@ -120,14 +124,14 @@ class App {
             this.LoginWv.CoreWebView2.CookieManager.GetCookiesAsync("https://www.roblox.com").then(list => this.GotCookies(list))
     }
 
-    ; Cookie found: ask Roblox "who is logged in?" from inside the login page (its own browser session).
+    ; Login cookie seen: ask Roblox "who is logged in?" from inside the login page (its own browser session).
     ; No answer yet = login not finished (2-step, captcha): the next check asks again.
     static GotCookies(list) {
         loop list.Count {
             c := list.GetValueAtIndex(A_Index - 1)
             if c.Name != ".ROBLOSECURITY" || !this.HasOwnProp("LoginWv")
                 continue
-            this.LoginCookie := c.Value
+            this.LoginSeen := true
             this.LoginWv.CoreWebView2.ExecuteScriptAsync("fetch('https://users.roblox.com/v1/users/authenticated',{credentials:'include'})"
                 . ".then(r=>r.text()).then(t=>chrome.webview.postMessage(t)).catch(e=>chrome.webview.postMessage(''))")
             return
@@ -135,28 +139,36 @@ class App {
     }
 
     static GotUser(json) {
-        if !this.HasOwnProp("LoginWv") || this.LoginCookie = ""
+        if !this.HasOwnProp("LoginWv") || !this.LoginSeen
             || !RegExMatch(json, '"id"\s*:\s*(\d+)', &i) || !RegExMatch(json, '"name"\s*:\s*"([^"]+)"', &n)
             return
-        cookie := this.LoginCookie, u := {id: i[1], name: n[1]}
-        this.EndLogin()
-        if !RbxUser(cookie)                           ; the app's own call (used by Play) said no: show Roblox's answer
-            this.Log("Note: Roblox answered the app with " RbxLast ". Play may not work for " u.name)
+        u := {id: i[1], name: n[1]}
+        this.EndLogin(true)
         old := this.Accts.Has(u.id) ? this.Accts[u.id] : 0
-        a := this.Accts[u.id] := {name: u.name, tracker: old ? old.tracker : NewTracker(), cookie: Protect(cookie)
+        if old && old.profile != ""
+            this.DropProfile(old.profile)
+        a := this.Accts[u.id] := {name: u.name, tracker: old ? old.tracker : NewTracker(), profile: this.LoginProfile
             , pid: old ? old.pid : 0, state: old && old.state != "Log in again" ? old.state : "Idle"}
-        IniWrite(a.name, this.AccIni, u.id, "Name"), IniWrite(a.tracker, this.AccIni, u.id, "Tracker"), IniWrite(a.cookie, this.AccIni, u.id, "Cookie")
+        IniWrite(a.name, this.AccIni, u.id, "Name"), IniWrite(a.tracker, this.AccIni, u.id, "Tracker")
+        IniWrite(a.profile, this.AccIni, u.id, "Profile")
         this.Log((old ? "Updated " : "Added ") a.name)
         this.Show()
     }
 
-    static EndLogin() {
+    static EndLogin(keep := false) {
         try SetTimer(this.LoginFn, 0)
         try this.LoginWv.Close()
         try this.LoginGui.Destroy()
         for p in ["LoginWv", "LoginGui"]
             try this.DeleteProp(p)
-        dir := this.LoginDir
+        if !keep
+            this.DropProfile(this.LoginProfile)
+    }
+
+    static DropProfile(name) {
+        if name = ""
+            return
+        dir := this.Profiles "\" name
         SetTimer(() => (DirExist(dir) && DirDelete(dir, true)), -5000)   ; Edge lets go of the folder a moment later
     }
 
@@ -168,7 +180,7 @@ class App {
         if !ids.Length || MsgBox("Remove " names "? (open clients stay open)", "KitsuneRoblox", "YesNo Owner" this.G.Hwnd) != "Yes"
             return
         for id in ids
-            this.Log("Removed " this.Accts[id].name), this.Accts.Delete(id), IniDelete(this.AccIni, id)
+            this.Log("Removed " this.Accts[id].name), this.DropProfile(this.Accts[id].profile), this.Accts.Delete(id), IniDelete(this.AccIni, id)
         this.Show()
     }
 
@@ -208,7 +220,7 @@ class App {
     ; ---------- watching ----------
 
     static Start() {
-        if GameInfo(this.Link.Value) = "" && !RegExMatch(this.Link.Value, "share\?code=")
+        if PlayPage(this.Link.Value) = ""
             return (this.Log("Paste a game link first"), false)
         this.Save()
         this.Running := true, this.Fails := 0, this.Poked := Map()
@@ -331,26 +343,60 @@ class App {
         } else {
             if !this.Accts.Has(acct)
                 return
-            global RbxLast := ""
-            a := this.Accts[acct], cookie := Unprotect(a.cookie)
-            if !this.Games.Has(this.Link.Value) || !this.Games[this.Link.Value]
-                this.Games[this.Link.Value] := GameInfo(this.Link.Value, cookie)
-            if !(game := this.Games[this.Link.Value]) || !(ticket := RbxTicket(cookie)) {
-                if InStr(RbxLast, "network") {        ; Roblox slow to answer: same account goes first again
-                    this.Queue.InsertAt(1, acct)
-                    if ++this.Fails >= 3
-                        return this.Stop("STOPPED: Roblox didn't answer 3 times (" RbxLast "). Check your internet", true)
-                    return this.Log("Roblox is slow to answer (" RbxLast "). Trying " a.name " again")
-                }
-                if !game
-                    return (a.state := "Idle", this.Log("Can't read the game link (" RbxLast ")"))
-                return (a.state := "Log in again", this.Log(a.name ": Roblox gave no login ticket (" RbxLast "). Click Add account and log in to it again"))
-            }
+            a := this.Accts[acct]
+            if a.profile = "" || !DirExist(this.Profiles "\" a.profile)
+                return (a.state := "Log in again", this.Log(a.name ": click Add account and log in to it again"))
             a.state := "Opening"
-            Run('explorer.exe "' PlayLink(ticket, game, a.tracker) '"')
+            this.OpenPlayPage(acct)
         }
         this.Launching := {acct: acct, at: A_TickCount, before: alive}
         this.Log("Opening " (acct ? this.Accts[acct].name : "the game"))
+    }
+
+    ; Roblox's own website starts the game in this account's saved browser (it makes the login ticket itself,
+    ; with its security key). We catch the roblox-player: link it opens and hand it to Fishstrap.
+    static OpenPlayPage(acct) {
+        this.EndPlay()
+        a := this.Accts[acct]
+        pg := this.PlayGui := Gui("+Owner" this.G.Hwnd, "Opening " a.name "...")
+        pg.BackColor := "191919"
+        pg.Show("w420 h520 NoActivate")
+        try wv := this.PlayWv := WebView2.CreateControllerAsync(pg.Hwnd, 0, this.Profiles "\" a.profile).await()
+        catch as e
+            return (this.EndPlay(), this.Log("Browser for " a.name " failed: " e.Message))
+        wv.DefaultBackgroundColor := 0x191919FF
+        wv.Fill()
+        onNav := (s, args) => this.GotPlayLink(acct, args)   ; the site opens roblox-player: as a page or in an iframe
+        wv.CoreWebView2.add_NavigationStarting(onNav)
+        wv.CoreWebView2.add_FrameNavigationStarting(onNav)
+        wv.CoreWebView2.Navigate(PlayPage(this.Link.Value))
+        ; shortcut: if the page doesn't start the game by itself, click its Play button (selector is a guess)
+        tok := this.PlayTok := A_TickCount
+        this.PlayFn := () => this.HasOwnProp("PlayWv") && this.PlayWv.CoreWebView2.ExecuteScriptAsync(
+            "(document.querySelector('[data-testid=play-button],.btn-common-play-game-lg,#game-details-play-button-container button')||{click(){}}).click()")
+        SetTimer(this.PlayFn, -15000)
+        SetTimer(() => this.PlayTok = tok && this.EndPlay(), -60000)   ; never leave it open
+    }
+
+    static GotPlayLink(acct, args) {
+        uri := args.Uri
+        if !RegExMatch(uri, "i)^roblox(-player)?:")
+            return
+        args.Cancel := true
+        if this.Accts.Has(acct) && RegExMatch(uri, "browsertrackerid:(\d+)", &m)   ; how we know this account's client later
+            this.Accts[acct].tracker := m[1], IniWrite(m[1], this.AccIni, acct, "Tracker")
+        Run('explorer.exe "' uri '"')
+        this.Log("Roblox site gave the game link for " this.Name(acct, 0))
+        tok := this.PlayTok
+        SetTimer(() => this.PlayTok = tok && this.EndPlay(), -3000)
+    }
+
+    static EndPlay() {
+        try SetTimer(this.PlayFn, 0)
+        try this.PlayWv.Close()
+        try this.PlayGui.Destroy()
+        for p in ["PlayWv", "PlayGui"]
+            try this.DeleteProp(p)
     }
 
     ; Roblox kicks after 20 min with no input. Background key messages don't count, so focus each
