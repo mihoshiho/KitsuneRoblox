@@ -356,9 +356,12 @@ class App {
             if !EdgeProcs(dir).Length
                 AllowRoblox(dir)
             a.state := "Opening"
-            Run('"' exe '" --user-data-dir=' dir ' --no-first-run --no-default-browser-check --new-window "' PlayPage(this.Link.Value) '"')
+            Run('"' exe '" --user-data-dir=' dir ' --window-position=-32000,-32000 --no-first-run --no-default-browser-check --new-window "'
+                . PlayPage(this.Link.Value) '"', , , &epid)
         }
-        this.Launching := {acct: acct, at: A_TickCount, before: alive, edge: dir}
+        this.Launching := {acct: acct, at: A_TickCount, before: alive, edge: dir, hid: Map()}
+        if dir != ""
+            this.HideEdge(this.Launching, epid)
         this.Log("Opening " (acct ? this.Accts[acct].name : "the game"))
     }
 
@@ -371,14 +374,32 @@ class App {
             a.tracker := m[1], IniWrite(m[1], this.AccIni, acct, "Tracker")
     }
 
+    ; Keep the account's Edge hidden while Roblox opens. No client after 45 s: show it so you can see why
+    ; (login expired, captcha, a Roblox message) and click yourself.
+    static HideEdge(l, pid) {
+        if this.Launching != l
+            return
+        if A_TickCount - l.at > 45000 {               ; a normal launch takes about 25 s
+            DetectHiddenWindows(true)
+            for hwnd in l.hid
+                try WinShow(hwnd), WinMove(100, 100, 900, 700, hwnd), WinActivate(hwnd)
+            return this.Log("Roblox didn't open yet: Edge is shown, check it")
+        }
+        for hwnd in WinGetList("ahk_pid " pid " ahk_class Chrome_WidgetWin_1")   ; visible ones only
+            try WinHide(hwnd), l.hid[hwnd] := 1
+        SetTimer(() => this.HideEdge(l, pid), -300)
+    }
+
     ; Launch over: close the account's Edge (asks its windows first, then ends what is left).
     static EndLaunch() {
-        dir := this.Launching ? this.Launching.edge : ""
-        this.Launching := 0
-        if dir = ""
+        l := this.Launching, this.Launching := 0
+        if !l || l.edge = ""
             return
-        for pid in EdgeProcs(dir)
-            try WinClose("ahk_pid " pid)
+        old := A_DetectHiddenWindows, DetectHiddenWindows(true)   ; Tick runs on after this: give the setting back
+        for hwnd in l.hid
+            try WinClose(hwnd)
+        DetectHiddenWindows(old)
+        dir := l.edge
         SetTimer(() => this.KillEdge(dir), -5000)
     }
 
