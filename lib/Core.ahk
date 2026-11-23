@@ -118,12 +118,15 @@ FindLog(pid, dir := "") {
     return best
 }
 
-; Soft RAM cap: Windows keeps at most mb of the process in real memory and pages the rest to disk.
-; No crash when the game needs more, only slower. Returns true when Windows took it.
-LimitRam(pid, mb) {
+; Trim: Windows moves the process's unused memory to disk once. No limit after it: the game takes
+; back what it needs, so it can't freeze from it. Also removes a hard cap an older version set.
+TrimRam(pid) {
     if !(h := DllCall("OpenProcess", "UInt", 0x1100, "Int", 0, "UInt", pid, "Ptr"))   ; SET_QUOTA | QUERY_LIMITED_INFORMATION
         return false
-    ok := DllCall("SetProcessWorkingSetSizeEx", "Ptr", h, "UPtr", 64 << 20, "UPtr", mb << 20, "UInt", 0x6)   ; MIN_DISABLE | MAX_ENABLE
+    lo := 0, hi := 0, fl := 0
+    if DllCall("GetProcessWorkingSetSizeEx", "Ptr", h, "UPtr*", &lo, "UPtr*", &hi, "UInt*", &fl) && fl & 0x4
+        DllCall("SetProcessWorkingSetSizeEx", "Ptr", h, "UPtr", lo, "UPtr", hi, "UInt", 0xA)   ; MIN_DISABLE | MAX_DISABLE
+    ok := DllCall("SetProcessWorkingSetSize", "Ptr", h, "Ptr", -1, "Ptr", -1)
     DllCall("CloseHandle", "Ptr", h)
     return ok
 }

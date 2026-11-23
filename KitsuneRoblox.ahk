@@ -15,7 +15,7 @@ class App {
     static Running := false
     static Profiles := EnvGet("LOCALAPPDATA") "\KitsuneRoblox\profiles"   ; one saved login browser per account (Edge encrypts it)
     static Accts := Map()           ; user id -> {name, tracker, profile, pid, state}
-    static Clients := Map()         ; pid -> {acct, log, pos, state, outSince, born, freed, gone}
+    static Clients := Map()         ; pid -> {acct, log, pos, state, outSince, born, freed, gone, trimAt}
     static Poked := Map()           ; hwnd -> tick of last anti-AFK key
     static Queue := [], Launching := 0, Fails := 0, Rows := [], Lines := []
     static TickFn := ObjBindMethod(App, "Tick")
@@ -48,9 +48,9 @@ class App {
         this.Key := g.AddEdit("x+4 yp-3 w70 Background2A2228", IniRead(this.Ini, "Main", "Key", "Space"))
         this.Rej := g.AddCheckbox("-Theme xm y+10 Checked" IniRead(this.Ini, "Main", "Rejoin", 1), "Rejoin after a disconnect (not when you close it)")
         this.Multi := g.AddCheckbox("-Theme xm y+6 Checked" IniRead(this.Ini, "Main", "Multi", 1), "Multi-instance (free Roblox's one-client lock)")
-        g.AddText("xm y+10", "RAM limit per client")
-        this.Ram := g.AddEdit("x+6 yp-3 w40 Number Background2A2228", IniRead(this.Ini, "Main", "RamGB", 2))
-        g.AddText("x+4 yp+3", "GB (soft: extra goes to disk, empty = off)")
+        g.AddText("xm y+10", "Trim RAM every")
+        this.Trim := g.AddEdit("x+6 yp-3 w40 Number Background2A2228", IniRead(this.Ini, "Main", "TrimMin", 10))
+        g.AddText("x+4 yp+3", "min (first 1 min after start, empty = off)")
         g.SetFont("s11 bold c191919")
         this.Btn := g.AddButton("xm y+12 w480 h34", "Start watching")
         this.Btn.OnEvent("Click", (*) => this.Running ? this.Stop("Stopped") : this.Start())
@@ -69,7 +69,7 @@ class App {
     }
 
     static Save() {
-        for k, c in Map("Link", this.Link, "AntiAfk", this.Afk, "Minutes", this.Mins, "Key", this.Key, "Rejoin", this.Rej, "Multi", this.Multi, "RamGB", this.Ram)
+        for k, c in Map("Link", this.Link, "AntiAfk", this.Afk, "Minutes", this.Mins, "Key", this.Key, "Rejoin", this.Rej, "Multi", this.Multi, "TrimMin", this.Trim)
             IniWrite(c.Value, this.Ini, "Main", k)
     }
 
@@ -259,11 +259,9 @@ class App {
             alive[pid] := 1
             if !this.Clients.Has(pid) {
                 acct := this.AcctOf(pid)
-                this.Clients[pid] := {acct: acct, log: "", pos: 0, state: "starting", outSince: 0, born: A_TickCount - AgeOf(pid) * 1000, freed: false, gone: 0}
+                this.Clients[pid] := {acct: acct, log: "", pos: 0, state: "starting", outSince: 0, born: A_TickCount - AgeOf(pid) * 1000, freed: false, gone: 0, trimAt: 0}
                 if acct
                     this.Accts[acct].pid := pid, this.Accts[acct].state := "In game"
-                if (gb := this.Ram.Value) > 0       ; shortcut: a new value applies to clients opened after it
-                    this.Log("Client " pid ": " (LimitRam(pid, gb * 1024) ? "RAM limit " gb " GB" : "can't limit RAM (Roblox refused)"))
             }
         }
         for pid, c in this.Clients.Clone() {
@@ -294,10 +292,26 @@ class App {
                     this.Accts[c.acct].state := "Waiting"
             }
         }
+        this.TrimAll()
         this.Launch(alive)
         if this.Afk.Value
             this.AntiAfk()
         this.Show()
+    }
+
+    ; Trim each client 1 min after it starts, then every N minutes.
+    static TrimAll() {
+        if (every := this.Trim.Value) = "" || every < 1
+            return
+        n := 0, saved := 0
+        for pid, c in this.Clients
+            if A_TickCount - c.born > 60000 && (!c.trimAt || A_TickCount - c.trimAt > every * 60000) {
+                before := RamOf(pid), c.trimAt := A_TickCount
+                if TrimRam(pid)
+                    n++, saved += Max(before - RamOf(pid), 0)
+            }
+        if n
+            this.Log("Trimmed RAM: " n " client(s), " saved " MB moved to disk")
     }
 
     static Name(acct, pid) => acct && this.Accts.Has(acct) ? this.Accts[acct].name : "Client " pid
