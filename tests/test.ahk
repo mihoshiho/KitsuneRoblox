@@ -104,6 +104,12 @@ Check(Crashed(48876, dir), "crash report found")
 Check(!Crashed(4887, dir) && !Crashed(488760, dir), "other pids: no crash")
 DirDelete(dir, true)
 Check(AgeOf(me) < 10, "process age read")
+f := A_Temp "\kr-hung-" me ".log"
+FileAppend("2026-11-23T20:53:55.160Z,215.160339,c878,6,Error [FLog::CrashReportLog] Terminated due it was hanging past timeout.`n", f)
+Check(Hung(f), "frozen client ended by Roblox = hung")
+FileDelete(f), FileAppend("normal end`n", f)
+Check(!Hung(f) && !Hung(f "x"), "normal log or no log: not hung")
+FileDelete(f)
 
 FileAppend(fails " failed`n", "*")
 ExitApp(fails)

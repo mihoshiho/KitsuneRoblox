@@ -157,3 +157,12 @@ Crashed(pid, dir := "") {
                 return true
     return false
 }
+
+; Roblox ended a frozen client itself ("Terminated due it was hanging past timeout" at the end of its log).
+Hung(log) {
+    try {
+        f := FileOpen(log, "r", "UTF-8"), f.Pos := Max(0, f.Length - 4096), t := f.Read(), f.Close()
+        return !!InStr(t, "hanging past timeout")
+    }
+    return false
+}

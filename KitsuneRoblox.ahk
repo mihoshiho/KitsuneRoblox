@@ -269,7 +269,7 @@ class App {
         for pid, c in this.Clients.Clone() {
             if !alive.Has(pid) {                      ; crash report = rejoin; none after 15 s = you closed it
                 c.gone := c.gone || A_TickCount
-                if this.Rej.Value && Crashed(pid) {
+                if this.Rej.Value && (Crashed(pid) || c.log != "" && Hung(c.log)) {   ; crash report, or Roblox ended it frozen
                     this.Log(this.Name(c.acct, pid) " crashed: rejoining")
                     this.Clients.Delete(pid), this.Free(c.acct), this.Queue.Push(c.acct)
                     if c.acct && this.Accts.Has(c.acct)
