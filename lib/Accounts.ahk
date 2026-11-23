@@ -50,20 +50,31 @@ FromBase64(s) {
 }
 
 ; One HTTPS call as this account. Returns the WinHttpRequest (Status, ResponseText, GetResponseHeader).
+; Slow network: one retry after a timeout (seen: 8-11 s to reach Roblox now and then).
 RbxHttp(method, url, cookie, body := "", csrf := "") {
-    r := ComObject("WinHttp.WinHttpRequest.5.1")
-    r.SetTimeouts(5000, 5000, 10000, 10000)
-    r.Open(method, url, false)
-    r.SetRequestHeader("Cookie", ".ROBLOSECURITY=" cookie)
-    r.SetRequestHeader("Referer", "https://www.roblox.com/")
-    r.SetRequestHeader("Origin", "https://www.roblox.com")
-    r.SetRequestHeader("Content-Type", "application/json")
-    r.SetRequestHeader("RBXAuthenticationNegotiation", "1")
-    if csrf
-        r.SetRequestHeader("X-CSRF-TOKEN", csrf)
-    r.Send(body)
-    global RbxLast := "HTTP " r.Status " " SubStr(RegExReplace(r.ResponseText, "\s+", " "), 1, 120)   ; for the log when Roblox says no
-    return r
+    global RbxLast
+    loop 2 {
+        r := ComObject("WinHttp.WinHttpRequest.5.1")
+        r.SetTimeouts(10000, 10000, 20000, 20000)
+        r.Open(method, url, false)
+        r.SetRequestHeader("Cookie", ".ROBLOSECURITY=" cookie)
+        r.SetRequestHeader("Referer", "https://www.roblox.com/")
+        r.SetRequestHeader("Origin", "https://www.roblox.com")
+        r.SetRequestHeader("Content-Type", "application/json")
+        r.SetRequestHeader("RBXAuthenticationNegotiation", "1")
+        if csrf
+            r.SetRequestHeader("X-CSRF-TOKEN", csrf)
+        try r.Send(body)
+        catch as e {
+            m := StrSplit(e.Message, "`n")
+            RbxLast := "network error: " Trim(m.Length > 1 ? m[2] : m[1])
+            if A_Index = 2
+                throw e
+            continue
+        }
+        RbxLast := "HTTP " r.Status " " SubStr(RegExReplace(r.ResponseText, "\s+", " "), 1, 120)   ; for the log when Roblox says no
+        return r
+    }
 }
 
 ; POST that needs a CSRF token: the first try returns 403 with the token, the second uses it.

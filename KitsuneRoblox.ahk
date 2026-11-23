@@ -33,10 +33,10 @@ class App {
         g.SetFont("cBFAFB8")
         g.AddText("xm y+14", "Accounts")
         g.SetFont("cF2E6EE")
-        this.LV := g.AddListView("xm w480 r6 Background221C20 -Multi -Hdr", ["Name", "State"])
-        this.LV.OnEvent("DoubleClick", (*) => this.Play())
+        this.LV := g.AddListView("xm w480 r6 Background221C20 -Hdr", ["Name", "State"])   ; Ctrl/Shift+click selects many
+        this.LV.OnEvent("DoubleClick", (lv, row) => row && this.Play(this.Rows[row]))
         g.SetFont("s10 c191919")
-        for b in [["Add account", (*) => this.AddAccount()], ["Play", (*) => this.Play()], ["Close", (*) => this.CloseOne()]
+        for b in [["Add account", (*) => this.AddAccount()], ["Play", (*) => this.ForSel("Play")], ["Close", (*) => this.ForSel("CloseOne")]
                 , ["Remove", (*) => this.Remove()], ["Play all", (*) => this.PlayAll()]]
             g.AddButton((A_Index = 1 ? "xm" : "x+6") " w91 h30", b[1]).OnEvent("Click", b[2])
 
@@ -77,9 +77,17 @@ class App {
                 , cookie: IniRead(this.AccIni, id, "Cookie", ""), pid: 0, state: "Idle"}
     }
 
+    ; Ids of every selected row (accounts, or "pid:<n>" for other clients).
     static Selected() {
-        r := this.LV.GetNext()
-        return r && r <= this.Rows.Length ? this.Rows[r] : ""
+        ids := [], r := 0
+        while (r := this.LV.GetNext(r)) && r <= this.Rows.Length
+            ids.Push(this.Rows[r])
+        return ids
+    }
+
+    static ForSel(method) {
+        for id in this.Selected()
+            this.%method%(id)
     }
 
     ; A Roblox login page in its own fresh browser profile. You log in yourself; we keep only the cookie.
@@ -153,18 +161,19 @@ class App {
     }
 
     static Remove() {
-        if (id := this.Selected()) = "" || InStr(id, "pid:")
+        ids := [], names := ""
+        for id in this.Selected()
+            if !InStr(id, "pid:")
+                ids.Push(id), names .= (names = "" ? "" : ", ") this.Accts[id].name
+        if !ids.Length || MsgBox("Remove " names "? (open clients stay open)", "KitsuneRoblox", "YesNo Owner" this.G.Hwnd) != "Yes"
             return
-        if MsgBox("Remove " this.Accts[id].name "? (its client stays open)", "KitsuneRoblox", "YesNo Owner" this.G.Hwnd) != "Yes"
-            return
-        this.Log("Removed " this.Accts[id].name)
-        this.Accts.Delete(id), IniDelete(this.AccIni, id)
+        for id in ids
+            this.Log("Removed " this.Accts[id].name), this.Accts.Delete(id), IniDelete(this.AccIni, id)
         this.Show()
     }
 
-    static Play(id := "") {
-        id := id || this.Selected()
-        if id = "" || InStr(id, "pid:")
+    static Play(id) {
+        if InStr(id, "pid:") || !this.Accts.Has(id)
             return
         a := this.Accts[id]
         if a.pid
@@ -184,9 +193,7 @@ class App {
                 this.Play(id)
     }
 
-    static CloseOne() {
-        if (id := this.Selected()) = ""
-            return
+    static CloseOne(id) {
         other := InStr(id, "pid:")
         if !(pid := other ? Integer(SubStr(id, 5)) : this.Accts[id].pid)
             return
@@ -324,13 +331,21 @@ class App {
         } else {
             if !this.Accts.Has(acct)
                 return
+            global RbxLast := ""
             a := this.Accts[acct], cookie := Unprotect(a.cookie)
             if !this.Games.Has(this.Link.Value) || !this.Games[this.Link.Value]
                 this.Games[this.Link.Value] := GameInfo(this.Link.Value, cookie)
-            if !(game := this.Games[this.Link.Value])
-                return (a.state := "Idle", this.Log("Can't read the game link"))
-            if !(ticket := RbxTicket(cookie))
+            if !(game := this.Games[this.Link.Value]) || !(ticket := RbxTicket(cookie)) {
+                if InStr(RbxLast, "network") {        ; Roblox slow to answer: same account goes first again
+                    this.Queue.InsertAt(1, acct)
+                    if ++this.Fails >= 3
+                        return this.Stop("STOPPED: Roblox didn't answer 3 times (" RbxLast "). Check your internet", true)
+                    return this.Log("Roblox is slow to answer (" RbxLast "). Trying " a.name " again")
+                }
+                if !game
+                    return (a.state := "Idle", this.Log("Can't read the game link (" RbxLast ")"))
                 return (a.state := "Log in again", this.Log(a.name ": Roblox gave no login ticket (" RbxLast "). Click Add account and log in to it again"))
+            }
             a.state := "Opening"
             Run('explorer.exe "' PlayLink(ticket, game, a.tracker) '"')
         }
@@ -366,13 +381,15 @@ class App {
     }
 
     static Show() {
-        sel := this.Selected()
+        sel := Map()
+        for id in this.Selected()
+            sel[id] := 1
         this.LV.Opt("-Redraw"), this.LV.Delete(), this.Rows := []
         for id, a in this.Accts
-            this.LV.Add(id = sel ? "Select" : "", a.name, a.state (a.pid ? "  (" a.pid ")" : "")), this.Rows.Push(id)
+            this.LV.Add(sel.Has(id) ? "Select" : "", a.name, a.state (a.pid ? "  (" a.pid ")" : "")), this.Rows.Push(id)
         for pid, c in this.Clients
             if !c.acct
-                this.LV.Add("pid:" pid = sel ? "Select" : "", "Other client", c.state "  (" pid ")"), this.Rows.Push("pid:" pid)
+                this.LV.Add(sel.Has("pid:" pid) ? "Select" : "", "Other client", c.state "  (" pid ")"), this.Rows.Push("pid:" pid)
         this.LV.ModifyCol(1, 220), this.LV.ModifyCol(2, 240), this.LV.Opt("+Redraw")
     }
 
