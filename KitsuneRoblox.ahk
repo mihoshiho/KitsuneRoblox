@@ -124,7 +124,7 @@ class App {
 
     static CheckLogin() {
         if this.HasOwnProp("LoginWv")
-            this.LoginWv.CoreWebView2.CookieManager.GetCookiesAsync("https://www.roblox.com").then(list => this.GotCookies(list))
+            try this.LoginWv.CoreWebView2.CookieManager.GetCookiesAsync("https://www.roblox.com").then(list => this.GotCookies(list))
     }
 
     ; Login cookie seen: ask Roblox "who is logged in?" from inside the login page (its own browser session).
@@ -135,7 +135,8 @@ class App {
             if c.Name != ".ROBLOSECURITY" || !this.HasOwnProp("LoginWv")
                 continue
             this.LoginSeen := true
-            this.LoginWv.CoreWebView2.ExecuteScriptAsync("fetch('https://users.roblox.com/v1/users/authenticated',{credentials:'include'})"
+            ; fails while the page is busy (redirect, closing): the next check asks again
+            try this.LoginWv.CoreWebView2.ExecuteScriptAsync("fetch('https://users.roblox.com/v1/users/authenticated',{credentials:'include'})"
                 . ".then(r=>r.text()).then(t=>chrome.webview.postMessage(t)).catch(e=>chrome.webview.postMessage(''))")
             return
         }
