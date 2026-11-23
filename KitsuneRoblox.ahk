@@ -17,7 +17,7 @@ class App {
     static Accts := Map()           ; user id -> {name, tracker, profile, pid, state}
     static Clients := Map()         ; pid -> {acct, log, pos, state, outSince, born, freed, gone, trimAt}
     static Poked := Map()           ; hwnd -> tick of last anti-AFK key
-    static Queue := [], Launching := 0, Fails := 0, Rows := [], Lines := []
+    static Queue := [], Launching := 0, Fails := 0, Rows := [], Lines := [], Mtx := 0, MtxOwned := false
     static TickFn := ObjBindMethod(App, "Tick")
 
     static Init() {
@@ -254,6 +254,8 @@ class App {
             return
         if WinExist("ahk_class #32770 ahk_exe " this.Exe)      ; a Roblox popup (error, warning): a person must look
             return this.Stop("STOPPED: Roblox shows a popup. Check it, then start again", true)
+        if this.Multi.Value && !this.MtxOwned
+            this.HoldLock()
         alive := Map()
         for pid in SessionProcs(this.Exe) {
             alive[pid] := 1
@@ -312,6 +314,14 @@ class App {
             }
         if n
             this.Log("Trimmed RAM: " n " client(s), " saved " MB moved to disk")
+    }
+
+    ; Own ROBLOX_singletonMutex for as long as this tool runs (tried each tick until the client holding it lets go).
+    static HoldLock() {
+        h := this.Mtx
+        if this.MtxOwned := OwnMutex("ROBLOX_singletonMutex", &h)
+            this.Log("Holding Roblox's lock: clients won't close each other (keep this tool running)")
+        this.Mtx := h
     }
 
     static Name(acct, pid) => acct && this.Accts.Has(acct) ? this.Accts[acct].name : "Client " pid

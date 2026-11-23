@@ -115,5 +115,17 @@ FileDelete(f), FileAppend("normal end`n", f)
 Check(!Hung(f) && !Hung(f "x"), "normal log or no log: not hung")
 FileDelete(f)
 
+; Lock: we own it, another process can't; a dead owner's lock comes to us
+name := "KitsuneTest_mutex_" me, h := 0
+child := A_Temp "\kr-mutex-child-" me ".ahk"
+FileAppend('h := DllCall("CreateMutex", "Ptr", 0, "Int", 0, "Str", "' name '", "Ptr"), r := DllCall("WaitForSingleObject", "Ptr", h, "UInt", 0, "UInt")`nif A_Args.Length`n    Sleep(1500)`nExitApp(r)', child)
+Check(RunWait('"' A_AhkPath '" "' child '"') = 0, "free lock: child gets it")
+Run('"' A_AhkPath '" "' child '" hold', , , &cp), Sleep(500)
+Check(!OwnMutex(name, &h), "child holds it: we don't")
+ProcessWaitClose(cp, 5)
+Check(OwnMutex(name, &h), "child died holding it: now ours")
+Check(RunWait('"' A_AhkPath '" "' child '"') = 0x102, "we hold it: child can't get it")
+FileDelete(child), DllCall("CloseHandle", "Ptr", h)
+
 FileAppend(fails " failed`n", "*")
 ExitApp(fails)

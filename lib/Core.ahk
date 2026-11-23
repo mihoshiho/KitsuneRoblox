@@ -169,3 +169,12 @@ Hung(log) {
     }
     return false
 }
+
+; Own a named lock and keep it (h keeps the handle between calls). False while another process holds it.
+; Held by us, Roblox clients never own ROBLOX_singletonMutex, so one closing can't make the others quit.
+OwnMutex(name, &h) {
+    if !h
+        h := DllCall("CreateMutex", "Ptr", 0, "Int", 0, "Str", name, "Ptr")
+    r := DllCall("WaitForSingleObject", "Ptr", h, "UInt", 0, "UInt")
+    return h && (r = 0 || r = 0x80)                ; 0x80: last owner died, now ours
+}
