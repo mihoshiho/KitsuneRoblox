@@ -47,6 +47,14 @@ lost := join "`n2026-11-23T20:00:59.894Z,6522.894043,bd00,6,Info [DFLog::Network
     . "`n2026-11-23T20:01:06.820Z,6529.820312,789c,7 [FLog::Network] Client has been disconnected with reason: Disconnected from game, please reconnect"
 Check(LogState(lost) = "out", "lost connection (error 256) = out")
 Check(LogState(lost "`n" join) = "in", "teleport after Client:Disconnect = in")
+; real server hop: new join, then the old server's "Time to disconnect" 0.05 s later (split over two reads)
+hop1 := "2026-11-24T05:44:56.119Z,60.119999,cd50,6 [FLog::Output] ! Joining game 'e950' place 8304191830 at 10.20.4.84"
+hop2 := "2026-11-24T05:44:56.164Z,60.164345,dea0,7 [FLog::Network] Time to disconnect replication data: 17.257000"
+j := -99
+Check(LogState(hop1 "`n" hop2, &j) = "in", "server hop, one read = in")
+j := -99, LogState(hop1, &j)
+Check(LogState(hop2, &j) = "", "server hop, split reads = nothing new")
+Check(LogState("2026-11-24T05:46:00.000Z,124.0,dea0,7 [FLog::Network] Time to disconnect replication data: 1.0", &j) = "out", "drop 1 min after join = out")
 ; real teleport: old server's Client:Disconnect comes 2 s after the new join
 Check(LogState(gone "`n" join "`n2026-11-24T05:36:04.821Z,556.821472,f588,6,Info [DFLog::NetworkClient] Client:Disconnect") = "in", "teleport cleanup Client:Disconnect = still in")
 Check(LogState(gone "`nDisconnection: You were kicked from this experience (Error Code: 267)") = "warn", "kick = warn")
@@ -128,6 +136,26 @@ ProcessWaitClose(cp, 5)
 Check(OwnMutex(name, &h), "child died holding it: now ours")
 Check(RunWait('"' A_AhkPath '" "' child '"') = 0x102, "we hold it: child can't get it")
 FileDelete(child), DllCall("CloseHandle", "Ptr", h)
+
+; Lock keeper: started by a process that exits at once, holds the lock while a fake client runs, quits after
+name := "KitsuneTest_keeper_" me, h := 0, fake := A_Temp "\kr-fake-" me ".exe", sleeper := A_Temp "\kr-sleep-" me ".ahk"
+FileCopy(A_AhkPath, fake, true), FileAppend("Sleep(60000)", sleeper)
+Run('"' fake '" "' sleeper '"', , , &fp)
+RunWait('"' A_AhkPath '" /ErrorStdOut "' A_ScriptDir '\launch-keeper.ahk" "' name '" "kr-fake-' me '.exe"')
+Sleep(1500)
+Check(NameExists("Event", "KitsuneKeeper_held_" name), "keeper holds the lock after its starter exited")
+Check(!OwnMutex(name, &h), "keeper holds it: we don't")
+RunWait('"' A_AhkPath '" "' A_ScriptDir '\launch-keeper.ahk" "' name '" "kr-fake-' me '.exe"'), Sleep(500)
+n := 0
+for p in ComObjGet("winmgmts:").ExecQuery("SELECT ProcessId FROM Win32_Process WHERE CommandLine LIKE '%LockKeeper.ahk%" name "%'")
+    n++
+Check(n = 1, "second start: still one keeper")
+Sleep(2000)
+Check(NameExists("Mutex", "KitsuneKeeper_" name), "keeper stays while a client runs")
+ProcessClose(fp), ProcessWaitClose(fp, 5), Sleep(3500)
+Check(!NameExists("Mutex", "KitsuneKeeper_" name), "keeper quits after no client for 2 s")
+Check(OwnMutex(name, &h), "lock free after keeper quits")
+DllCall("CloseHandle", "Ptr", h), FileDelete(fake), FileDelete(sleeper)
 
 FileAppend(fails " failed`n", "*")
 ExitApp(fails)

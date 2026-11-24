@@ -17,7 +17,7 @@ class App {
     static Accts := Map()           ; user id -> {name, tracker, profile, pid, state}
     static Clients := Map()         ; pid -> {acct, log, pos, state, outSince, born, freed, gone, trimAt}
     static Poked := Map()           ; hwnd -> tick of last anti-AFK key
-    static Queue := [], Launching := 0, Fails := 0, Rows := [], Lines := [], Mtx := 0, MtxOwned := false
+    static Queue := [], Launching := 0, Fails := 0, Rows := [], Lines := [], LockSeen := false
     static TickFn := ObjBindMethod(App, "Tick")
 
     static Init() {
@@ -254,14 +254,14 @@ class App {
             return
         if WinExist("ahk_class #32770 ahk_exe " this.Exe)      ; a Roblox popup (error, warning): a person must look
             return this.Stop("STOPPED: Roblox shows a popup. Check it, then start again", true)
-        if this.Multi.Value && !this.MtxOwned
+        if this.Multi.Value
             this.HoldLock()
         alive := Map()
         for pid in SessionProcs(this.Exe) {
             alive[pid] := 1
             if !this.Clients.Has(pid) {
                 acct := this.AcctOf(pid)
-                this.Clients[pid] := {acct: acct, log: "", pos: 0, state: "starting", outSince: 0, born: A_TickCount - AgeOf(pid) * 1000, freed: false, gone: 0, trimAt: 0}
+                this.Clients[pid] := {acct: acct, log: "", pos: 0, state: "starting", outSince: 0, join: -99, born: A_TickCount - AgeOf(pid) * 1000, freed: false, gone: 0, trimAt: 0}
                 if acct
                     this.Accts[acct].pid := pid, this.Accts[acct].state := "In game"
             }
@@ -316,12 +316,12 @@ class App {
             this.Log("Trimmed RAM: " n " client(s), " saved " MB moved to disk")
     }
 
-    ; Own ROBLOX_singletonMutex for as long as this tool runs (tried each tick until the client holding it lets go).
+    ; LockKeeper.ahk holds ROBLOX_singletonMutex in its own process, so closing this tool never frees it.
     static HoldLock() {
-        h := this.Mtx
-        if this.MtxOwned := OwnMutex("ROBLOX_singletonMutex", &h)
-            this.Log("Holding Roblox's lock: clients won't close each other (keep this tool running)")
-        this.Mtx := h
+        if !NameExists("Mutex", "KitsuneKeeper_ROBLOX_singletonMutex")
+            Run('"' A_AhkPath '" "' A_ScriptDir '\LockKeeper.ahk"'), this.LockSeen := false
+        else if !this.LockSeen && (this.LockSeen := NameExists("Event", "KitsuneKeeper_held_ROBLOX_singletonMutex"))
+            this.Log("Holding Roblox's lock: clients won't close each other, even if this tool closes")
     }
 
     static Name(acct, pid) => acct && this.Accts.Has(acct) ? this.Accts[acct].name : "Client " pid
@@ -349,7 +349,8 @@ class App {
             f.Pos := c.pos, text := f.Read(), c.pos := f.Pos, f.Close()
         } catch
             return ""
-        if (s := LogState(text)) = "out" && c.state != "out"
+        j := c.join, s := LogState(text, &j), c.join := j
+        if s = "out" && c.state != "out"
             c.outSince := A_TickCount
         if s != ""
             c.state := s

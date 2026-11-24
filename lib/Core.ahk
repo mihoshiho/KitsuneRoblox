@@ -81,14 +81,17 @@ GameLink(url) {
 
 ; Read new log text and return the last state seen: "in", "out", "warn" or "" (nothing new).
 ; A teleport also logs "disconnect", but a new "Joining game" follows within seconds, so the caller waits a bit.
-LogState(text) {
+; joinAt: client uptime (2nd log field, seconds) of the last join, kept by the caller across reads.
+; Out lines within 10 s after a join are the old server's cleanup after a teleport, not a disconnect.
+LogState(text, &joinAt := -99) {
     state := ""
     loop parse text, "`n", "`r" {
+        up := StrSplit(A_LoopField, ",", , 3), up := up.Length > 2 && IsNumber(up[2]) ? up[2] + 0 : ""
         if InStr(A_LoopField, "! Joining game") || InStr(A_LoopField, "initiateTeleport")
-            state := "in"
-        else if InStr(A_LoopField, "Time to disconnect replication data") || InStr(A_LoopField, "leaveUGCGameInternal")
-            || InStr(A_LoopField, "Client has been disconnected with reason")   ; "Lost connection" popup (error 256); not "Client:Disconnect", a teleport logs it after the new join
-
+            state := "in", joinAt := up != "" ? up : joinAt
+        else if (InStr(A_LoopField, "Time to disconnect replication data") || InStr(A_LoopField, "leaveUGCGameInternal")
+            || InStr(A_LoopField, "Client has been disconnected with reason"))   ; "Lost connection" popup (error 256); not "Client:Disconnect", a teleport logs it after the new join
+            && !(up != "" && up - joinAt < 10)     ; shortcut: a real drop within 10 s of joining is missed, rare
             state := "out"
         ; shortcut: kick/ban text guessed from known popups, no real kick log seen yet; refine with a real one
         if RegExMatch(A_LoopField, "i)\b(kick(ed)?|bann?ed)\b|same account") && RegExMatch(A_LoopField, "i)disconnect|lost connection|error code")
@@ -173,6 +176,13 @@ Hung(log) {
 
 ; Own a named lock and keep it (h keeps the handle between calls). False while another process holds it.
 ; Held by us, Roblox clients never own ROBLOX_singletonMutex, so one closing can't make the others quit.
+; True if a named mutex or event exists (kind "Mutex" or "Event").
+NameExists(kind, name) {
+    if h := DllCall("Open" kind, "UInt", 0x100000, "Int", 0, "Str", name, "Ptr")
+        DllCall("CloseHandle", "Ptr", h)
+    return !!h
+}
+
 OwnMutex(name, &h) {
     if !h
         h := DllCall("CreateMutex", "Ptr", 0, "Int", 0, "Str", name, "Ptr")
