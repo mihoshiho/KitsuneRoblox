@@ -47,6 +47,8 @@ lost := join "`n2026-11-23T20:00:59.894Z,6522.894043,bd00,6,Info [DFLog::Network
     . "`n2026-11-23T20:01:06.820Z,6529.820312,789c,7 [FLog::Network] Client has been disconnected with reason: Disconnected from game, please reconnect"
 Check(LogState(lost) = "out", "lost connection (error 256) = out")
 Check(LogState(lost "`n" join) = "in", "teleport after Client:Disconnect = in")
+; real teleport: old server's Client:Disconnect comes 2 s after the new join
+Check(LogState(gone "`n" join "`n2026-11-24T05:36:04.821Z,556.821472,f588,6,Info [DFLog::NetworkClient] Client:Disconnect") = "in", "teleport cleanup Client:Disconnect = still in")
 Check(LogState(gone "`nDisconnection: You were kicked from this experience (Error Code: 267)") = "warn", "kick = warn")
 Check(LogState("[FLog::Output] Player kicked a ball") = "", "game chat 'kicked' alone is not a warn")
 

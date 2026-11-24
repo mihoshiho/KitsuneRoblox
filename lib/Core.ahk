@@ -87,7 +87,8 @@ LogState(text) {
         if InStr(A_LoopField, "! Joining game") || InStr(A_LoopField, "initiateTeleport")
             state := "in"
         else if InStr(A_LoopField, "Time to disconnect replication data") || InStr(A_LoopField, "leaveUGCGameInternal")
-            || InStr(A_LoopField, "Client:Disconnect") || InStr(A_LoopField, "Client has been disconnected with reason")   ; "Lost connection" popup (error 256)
+            || InStr(A_LoopField, "Client has been disconnected with reason")   ; "Lost connection" popup (error 256); not "Client:Disconnect", a teleport logs it after the new join
+
             state := "out"
         ; shortcut: kick/ban text guessed from known popups, no real kick log seen yet; refine with a real one
         if RegExMatch(A_LoopField, "i)\b(kick(ed)?|bann?ed)\b|same account") && RegExMatch(A_LoopField, "i)disconnect|lost connection|error code")
