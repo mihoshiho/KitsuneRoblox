@@ -22,6 +22,16 @@ Check(!DllCall("OpenEvent", "UInt", 0x100000, "Int", 0, "Str", name, "Ptr"), "ev
 Check(!CloseSingleton(me, "KitsuneTest_noSuchEvent"), "unknown name: nothing closed")
 Check(!CloseSingleton(999999, name), "bad pid: nothing closed")
 
+; Handoff objects: a mutex, a section and a prefix name, all closed in one pass
+mx := DllCall("CreateMutex", "Ptr", 0, "Int", 0, "Str", "KitsuneTest_" me ".mtx", "Ptr")
+sh := DllCall("CreateFileMapping", "Ptr", -1, "Ptr", 0, "UInt", 4, "UInt", 0, "UInt", 4096, "Str", "KitsuneTest_" me ".shm", "Ptr")
+wn := DllCall("CreateFileMapping", "Ptr", -1, "Ptr", 0, "UInt", 4, "UInt", 0, "UInt", 4096, "Str", "KitsuneTestWND-" me "-GUID", "Ptr")
+objs := Map("KitsuneTest_" me ".mtx", "Mutant", "KitsuneTest_" me ".shm", "Section", "KitsuneTestWND-" me "-*", "Section", "KitsuneTest_none", "Event")
+Check(CloseSingleton(me, objs) = 3, "mutex, section and prefix name closed")
+Check(objs.Count = 1 && objs.Has("KitsuneTest_none"), "only the missing name is left")
+Check(!NameExists("Mutex", "KitsuneTest_" me ".mtx"), "mutex name gone")
+Check(InStr(Lockers(me)[StrReplace(A_AhkPath, "\", "_") ".mtx"], "Mutant"), "Lockers names the exe-path lock")
+
 ; Session filter
 Check(SessionOf(me) != "", "own session read")
 found := false

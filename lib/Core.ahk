@@ -15,16 +15,21 @@ SessionProcs(exe) {
     return list
 }
 
-; Close the named event a Roblox client holds, like Process Explorer's "Close Handle".
-; Once it is gone the next client thinks it is the only one, so both stay open.
-; The session number comes from the target process. Returns true if a handle was closed.
-CloseSingleton(pid, name := "ROBLOX_singletonEvent") {
+; Close named objects a Roblox client holds, like Process Explorer's "Close Handle".
+; Once they are gone the next client thinks it is the only one, so both stay open.
+; objs: a name (an Event) or a Map of name -> kind ("Event", "Mutant", "Section"); a name ending in * matches by prefix.
+; Closed names are removed from the Map. The session number comes from the target process. Returns how many were closed.
+CloseSingleton(pid, objs := "ROBLOX_singletonEvent") {
     static types := Map()                       ; ObjectTypeIndex -> type name, same for the whole boot
+    if Type(objs) = "String"
+        objs := Map(objs, "Event")
     if (sid := SessionOf(pid)) = ""
-        return false
-    want := "\Sessions\" sid "\BaseNamedObjects\" name
+        return 0
+    base := "\Sessions\" sid "\BaseNamedObjects\", kinds := Map()
+    for name, kind in objs
+        kinds[kind] := 1
     if !hProc := DllCall("OpenProcess", "UInt", 0x40 | 0x1000, "Int", 0, "UInt", pid, "Ptr")   ; DUP_HANDLE | QUERY_LIMITED
-        return false
+        return 0
     size := 0x400000
     loop {                                      ; SystemExtendedHandleInformation (64); grow until it fits
         buf := Buffer(size), need := 0
@@ -33,27 +38,36 @@ CloseSingleton(pid, name := "ROBLOX_singletonEvent") {
             break
         size := need + 0x100000
     }
-    found := false, me := DllCall("GetCurrentProcess", "Ptr")
+    done := Map(), me := DllCall("GetCurrentProcess", "Ptr")
     if st = 0
         loop NumGet(buf, 0, "UPtr") {
             off := 16 + (A_Index - 1) * 40      ; SYSTEM_HANDLE_TABLE_ENTRY_INFO_EX is 40 bytes on x64
             if NumGet(buf, off + 8, "UPtr") != pid
                 continue
             ti := NumGet(buf, off + 30, "UShort")
-            if types.Has(ti) && types[ti] != "Event"
+            if types.Has(ti) && !kinds.Has(types[ti])
                 continue
             h := NumGet(buf, off + 16, "UPtr"), dup := 0
             if !DllCall("DuplicateHandle", "Ptr", hProc, "Ptr", h, "Ptr", me, "Ptr*", &dup, "UInt", 0, "Int", 0, "UInt", 2)
                 continue
             if !types.Has(ti)
                 types[ti] := ObjectInfo(dup, 2)
-            ; only Event names are read: a name query on some pipe handles can hang
-            if types[ti] = "Event" && ObjectInfo(dup, 1) = want
-                found := DllCall("DuplicateHandle", "Ptr", hProc, "Ptr", h, "Ptr", 0, "Ptr", 0, "UInt", 0, "Int", 0, "UInt", 1)   ; DUPLICATE_CLOSE_SOURCE
+            ; only names of the wanted kinds are read: a name query on some pipe handles can hang
+            if kinds.Has(types[ti]) && InStr(n := ObjectInfo(dup, 1), base) = 1 {
+                n := SubStr(n, StrLen(base) + 1)
+                for name, kind in objs
+                    if kind = types[ti] && (n = name || SubStr(name, -1) = "*" && InStr(n, SubStr(name, 1, -1)) = 1) {
+                        if DllCall("DuplicateHandle", "Ptr", hProc, "Ptr", h, "Ptr", 0, "Ptr", 0, "UInt", 0, "Int", 0, "UInt", 1)   ; DUPLICATE_CLOSE_SOURCE
+                            done[name] := 1             ; a client can hold one name twice: close every handle
+                        break
+                    }
+            }
             DllCall("CloseHandle", "Ptr", dup)
         }
     DllCall("CloseHandle", "Ptr", hProc)
-    return !!found
+    for name in done
+        objs.Delete(name)
+    return done.Count
 }
 
 ; NtQueryObject: class 1 = name, 2 = type name. Both start with a UNICODE_STRING.
@@ -176,6 +190,17 @@ Hung(log) {
 
 ; Own a named lock and keep it (h keeps the handle between calls). False while another process holds it.
 ; Held by us, Roblox clients never own ROBLOX_singletonMutex, so one closing can't make the others quit.
+; Named objects a new client uses to find this one: the old one-client event, and the NoReload
+; handoff (seen Nov 2026) that passes a new launch's join into this window instead of opening one.
+Lockers(pid) {
+    objs := Map("ROBLOX_singletonEvent", "Event", "RBXMAINWND-*", "Section")
+    try {
+        p := StrReplace(ProcessGetPath(pid), "\", "_")     ; C:_Users_..._RobloxPlayerBeta.exe
+        objs[p ".mtx"] := "Mutant", objs[p ".shm"] := "Section"
+    }
+    return objs
+}
+
 ; True if a named mutex or event exists (kind "Mutex" or "Event").
 NameExists(kind, name) {
     if h := DllCall("Open" kind, "UInt", 0x100000, "Int", 0, "Str", name, "Ptr")

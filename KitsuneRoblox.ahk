@@ -15,7 +15,7 @@ class App {
     static Running := false
     static Profiles := EnvGet("LOCALAPPDATA") "\KitsuneRoblox\profiles"   ; one saved login browser per account (Edge encrypts it)
     static Accts := Map()           ; user id -> {name, tracker, profile, pid, state}
-    static Clients := Map()         ; pid -> {acct, log, pos, state, outSince, born, freed, gone, trimAt}
+    static Clients := Map()         ; pid -> {acct, log, pos, state, outSince, join, born, left, uid, gone, trimAt}
     static Poked := Map()           ; hwnd -> tick of last anti-AFK key
     static Queue := [], Launching := 0, Fails := 0, Rows := [], Lines := [], LockSeen := false
     static TickFn := ObjBindMethod(App, "Tick")
@@ -261,7 +261,7 @@ class App {
             alive[pid] := 1
             if !this.Clients.Has(pid) {
                 acct := this.AcctOf(pid)
-                this.Clients[pid] := {acct: acct, log: "", pos: 0, state: "starting", outSince: 0, join: -99, born: A_TickCount - AgeOf(pid) * 1000, freed: false, gone: 0, trimAt: 0}
+                this.Clients[pid] := {acct: acct, log: "", pos: 0, state: "starting", outSince: 0, join: -99, born: A_TickCount - AgeOf(pid) * 1000, left: 0, uid: "", gone: 0, trimAt: 0}
                 if acct
                     this.Accts[acct].pid := pid, this.Accts[acct].state := "In game"
             }
@@ -280,11 +280,21 @@ class App {
                 }
                 continue
             }
-            if this.Multi.Value && !c.freed && A_TickCount - c.born < 60000
-                if c.freed := CloseSingleton(pid)
-                    this.Log("Client " pid ": one-client lock freed")
+            if this.Multi.Value && (!c.left || c.left.Count) {
+                c.left := c.left || Lockers(pid)
+                if A_TickCount - c.born < 60000 {
+                    if CloseSingleton(pid, c.left) && !c.left.Count
+                        this.Log("Client " pid ": one-client locks freed")
+                } else {
+                    for name in c.left
+                        this.Log("Client " pid ": not found " name)
+                    c.left := Map()
+                }
+            }
             if this.ReadLog(pid, c) = "warn"
                 return this.Stop("STOPPED: " this.Name(c.acct, pid) " was kicked or warned. Check it, then start again", true)
+            if c.acct && c.uid && c.uid != c.acct          ; the account's saved login is someone else
+                return this.Stop("STOPPED: " this.Name(c.acct, pid) " opened as another account (user " c.uid "). Log in again for it", true)
             if this.Rej.Value && c.state = "out" && A_TickCount - c.outSince > 45000 {   ; 45 s: a teleport joins again before that
                 this.Log(this.Name(c.acct, pid) " disconnected: rejoining")
                 this.Clients.Delete(pid), this.Free(c.acct, pid)
@@ -349,6 +359,8 @@ class App {
             f.Pos := c.pos, text := f.Read(), c.pos := f.Pos, f.Close()
         } catch
             return ""
+        if c.uid = "" && RegExMatch(text, "userid:(\d+)", &m)
+            c.uid := m[1]
         j := c.join, s := LogState(text, &j), c.join := j
         if s = "out" && c.state != "out"
             c.outSince := A_TickCount
