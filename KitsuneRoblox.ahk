@@ -280,7 +280,7 @@ class App {
                 }
                 continue
             }
-            if this.Multi.Value && (!c.left || c.left.Count) {
+            if this.Multi.Value && (!c.left || c.left.Count) && (c.left || A_TickCount - c.born < 60000) {   ; an old client: freed before
                 c.left := c.left || Lockers(pid)
                 if A_TickCount - c.born < 60000 {
                     if CloseSingleton(pid, c.left) && !c.left.Count
@@ -293,6 +293,10 @@ class App {
             }
             if this.ReadLog(pid, c) = "warn"
                 return this.Stop("STOPPED: " this.Name(c.acct, pid) " was kicked or warned. Check it, then start again", true)
+            if c.acct = "" && c.uid && this.Accts.Has(c.uid) && !this.Accts[c.uid].pid {   ; Roblox no longer puts our tracker id in the command line
+                c.acct := c.uid, this.Accts[c.uid].pid := pid, this.Accts[c.uid].state := "In game"
+                this.Log("Client " pid " is " this.Accts[c.uid].name)
+            }
             if c.acct && c.uid && c.uid != c.acct          ; the account's saved login is someone else
                 return this.Stop("STOPPED: " this.Name(c.acct, pid) " opened as another account (user " c.uid "). Log in again for it", true)
             if c.acct && c.uid = c.acct && !c.saved && this.Newest(pid)
