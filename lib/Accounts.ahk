@@ -48,3 +48,6 @@ CmdLine(pid) {
         try return String(p.CommandLine)
     return ""
 }
+
+; Roblox's own saved login (encrypted by Windows for this user). Never read here, only copied per account.
+RobloxLogin() => EnvGet("LOCALAPPDATA") "\Roblox\LocalStorage\RobloxCookies.dat"

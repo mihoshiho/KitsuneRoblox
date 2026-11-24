@@ -15,7 +15,7 @@ class App {
     static Running := false
     static Profiles := EnvGet("LOCALAPPDATA") "\KitsuneRoblox\profiles"   ; one saved login browser per account (Edge encrypts it)
     static Accts := Map()           ; user id -> {name, tracker, profile, pid, state}
-    static Clients := Map()         ; pid -> {acct, log, pos, state, outSince, join, born, left, uid, gone, trimAt}
+    static Clients := Map()         ; pid -> {acct, log, pos, state, outSince, join, born, left, uid, saved, gone, trimAt}
     static Poked := Map()           ; hwnd -> tick of last anti-AFK key
     static Queue := [], Launching := 0, Fails := 0, Rows := [], Lines := [], LockSeen := false
     static TickFn := ObjBindMethod(App, "Tick")
@@ -261,7 +261,7 @@ class App {
             alive[pid] := 1
             if !this.Clients.Has(pid) {
                 acct := this.AcctOf(pid)
-                this.Clients[pid] := {acct: acct, log: "", pos: 0, state: "starting", outSince: 0, join: -99, born: A_TickCount - AgeOf(pid) * 1000, left: 0, uid: "", gone: 0, trimAt: 0}
+                this.Clients[pid] := {acct: acct, log: "", pos: 0, state: "starting", outSince: 0, join: -99, born: A_TickCount - AgeOf(pid) * 1000, left: 0, uid: "", saved: false, gone: 0, trimAt: 0}
                 if acct
                     this.Accts[acct].pid := pid, this.Accts[acct].state := "In game"
             }
@@ -295,6 +295,8 @@ class App {
                 return this.Stop("STOPPED: " this.Name(c.acct, pid) " was kicked or warned. Check it, then start again", true)
             if c.acct && c.uid && c.uid != c.acct          ; the account's saved login is someone else
                 return this.Stop("STOPPED: " this.Name(c.acct, pid) " opened as another account (user " c.uid "). Log in again for it", true)
+            if c.acct && c.uid = c.acct && !c.saved && this.Newest(pid)
+                c.saved := this.SaveLogin(c.acct)
             if this.Rej.Value && c.state = "out" && A_TickCount - c.outSince > 45000 {   ; 45 s: a teleport joins again before that
                 this.Log(this.Name(c.acct, pid) " disconnected: rejoining")
                 this.Clients.Delete(pid), this.Free(c.acct, pid)
@@ -340,6 +342,24 @@ class App {
     static Free(acct, pid := 0) {
         if acct && this.Accts.Has(acct) && (!pid || this.Accts[acct].pid = pid)
             this.Accts[acct].pid := 0, this.Accts[acct].state := "Idle"
+    }
+
+    ; Roblox's own saved login is this account's now (it joined as itself): keep a copy for its next Play.
+    ; shortcut: Roblox may renew the login later in a running client, our copy only updates on the next join.
+    static SaveLogin(acct) {
+        try FileCopy(RobloxLogin(), this.Profiles "\" this.Accts[acct].profile "\RobloxCookies.dat", true)
+        catch
+            return false
+        this.Log(this.Accts[acct].name ": Roblox login saved")
+        return true
+    }
+
+    ; Only the newest client's login is in Roblox's file.
+    static Newest(pid) {
+        for p, c in this.Clients
+            if c.born > this.Clients[pid].born
+                return false
+        return true
     }
 
     ; Which saved account a client belongs to: our browsertrackerid is in its command line.
@@ -389,6 +409,9 @@ class App {
         }
         if !this.Queue.Length
             return
+        for pid, c in this.Clients                    ; wait until the last opened client's login is saved: the next Play swaps the file
+            if c.acct && !c.saved && !c.uid && A_TickCount - c.born < 120000
+                return
         ; never close Fishstrap here: it holds ROBLOX_singletonMutex, and killing it made every open client quit
         acct := this.Queue.RemoveAt(1), dir := ""
         if acct = "" {
@@ -406,6 +429,14 @@ class App {
             dir := this.Profiles "\" a.profile "\EBWebView"   ; the login window's browser data: Edge reads it as is
             if !EdgeProcs(dir).Length
                 AllowRoblox(dir)
+            ; Roblox now logs in with its own saved login, not Edge's: put this account's in place first
+            live := RobloxLogin(), saved := this.Profiles "\" a.profile "\RobloxCookies.dat"
+            if FileExist(saved)
+                FileCopy(saved, live, true)
+            else if FileExist(live) {
+                FileMove(live, live ".kitsune-bak", true)
+                this.Log(a.name ": no saved Roblox login yet. Sign in to it in the Roblox window")
+            }
             a.state := "Opening"
             Run('"' exe '" --user-data-dir=' dir ' --window-position=-32000,-32000 --no-first-run --no-default-browser-check --new-window "'
                 . PlayPage(this.Link.Value) '"', , , &epid)
