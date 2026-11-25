@@ -22,7 +22,7 @@ App.Init()
 class App {
     static Exe := "RobloxPlayerBeta.exe"
     static Win := "Roblox ahk_exe RobloxPlayerBeta.exe ahk_class WINDOWSCLIENT"
-    static Version := "1.0.1"
+    static Version := "1.0.2"
     ;@Ahk2Exe-Let U_version = %A_PriorLine~U)^(.+")(.*)".*$~$2%
     ;@Ahk2Exe-SetVersion %U_version%
     static Repo := "mihoshiho/KitsuneRoblox", Update := 0
