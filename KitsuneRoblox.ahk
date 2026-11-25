@@ -144,8 +144,11 @@ class App {
             TrayTip("Still watching. Click the tray icon to open", "KitsuneRoblox", 0x10)
     }
 
-    ; Messages from the page: "command<tab>arg<tab>arg".
-    static OnUi(msg) {
+    ; Messages from the page: "command<tab>arg<tab>arg". Handled just after WebView2's event returns:
+    ; waiting inside it (Add account starts its own WebView2) never finished.
+    static OnUi(msg) => SetTimer(this.DoUi.Bind(this, msg), -1)
+
+    static DoUi(msg) {
         m := StrSplit(msg, "`t")
         switch m[1] {
             case "ready": this.UiReady := true, this.Push()
