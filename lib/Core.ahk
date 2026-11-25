@@ -203,3 +203,30 @@ OwnMutex(name, &h) {
     r := DllCall("WaitForSingleObject", "Ptr", h, "UInt", 0, "UInt")
     return h && (r = 0 || r = 0x80)                ; 0x80: last owner died, now ours
 }
+
+; Value -> JSON text for the window: Map and plain objects become objects, Arrays arrays, numbers stay numbers.
+Json(v) {
+    if v is Number
+        return String(v)
+    if v is Array {
+        s := ""
+        for x in v
+            s .= (A_Index > 1 ? "," : "") Json(x)
+        return "[" s "]"
+    }
+    if v is Map || IsObject(v) {
+        s := ""
+        for k, x in (v is Map ? v : v.OwnProps())
+            s .= (s = "" ? "" : ",") Json(String(k)) ":" Json(x)
+        return "{" s "}"
+    }
+    for p in [["\", "\\"], ['"', '\"'], ["`n", "\n"], ["`r", "\r"], ["`t", "\t"]]   ; backslash first
+        v := StrReplace(v, p[1], p[2])
+    return '"' RegExReplace(v, "[\x00-\x1F]") '"'
+}
+
+; Game link -> {ok, vip, place}: vip for a private server or a share link to a server.
+GameInfo(url) {
+    ok := GameLink(url) != "", vip := ok && RegExMatch(url, "i)privateServerLinkCode=|share\?code=.*type=Server")
+    return {ok: ok, vip: vip, place: RegExMatch(url, "games/(\d+)", &m) ? m[1] : ""}
+}

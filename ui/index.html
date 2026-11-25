@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>KitsuneRoblox</title>
+<style>
+:root {
+  --ground: #191919; --surface: #231f21; --surface-2: #2e282b; --line: #3d3438;
+  --ink: #fff4f8; --muted: #b3a1aa; --faint: #7d6e75;
+  --sakura: #ff9ec8; --sakura-deep: #f06aa6; --sakura-tint: #3a2430; --on-sakura: #2a1520;
+  --fox: #ffa86b; --mint: #86ebc0; --coral: #ff7f98;
+  --sans: "Noto Sans", "Kiwi Maru", "Noto Sans Thai", "Segoe UI", system-ui, sans-serif;
+  --round: "Kiwi Maru", "Noto Sans", "Noto Sans Thai", system-ui, sans-serif;
+  --spring: cubic-bezier(.34, 1.4, .64, 1);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--ground); color: var(--ink); font: 14px/1.45 var(--sans); overflow: hidden; user-select: none; }
+body { display: flex; flex-direction: column; gap: 12px; padding: 16px; }
+button { font: inherit; border: none; border-radius: 10px; padding: 6px 12px; background: var(--surface-2); color: var(--ink); cursor: pointer; transition: transform .15s var(--spring), background .15s; }
+button:hover { background: #3a3236; }
+button:active { transform: scale(.96); }
+button:focus-visible, input:focus-visible { outline: none; box-shadow: 0 0 0 3px #ff9ec866; }
+button.pri { background: var(--sakura); color: var(--on-sakura); font-weight: 700; }
+button.pri:hover { background: var(--sakura-deep); }
+button.pill { border-radius: 999px; }
+button.icon { border-radius: 999px; width: 34px; height: 34px; padding: 0; display: grid; place-items: center; }
+.card { background: var(--surface); border-radius: 14px; padding: 12px 14px; }
+.label { font-size: 11px; font-weight: 700; letter-spacing: .06em; color: var(--muted); text-transform: uppercase; }
+.row { display: flex; align-items: center; gap: 8px; }
+.grow { flex: 1; min-width: 0; }
+.ell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* header */
+.head { background: var(--sakura-tint); border-radius: 20px; padding: 14px 16px; }
+.fox { width: 56px; height: 56px; border-radius: 50%; background: var(--surface); display: grid; place-items: center; flex: none; }
+.fox canvas { width: 48px; height: 24px; image-rendering: pixelated; }
+.title { font: 500 19px/1.3 var(--round); }
+.sub { font-size: 12px; color: var(--muted); }
+.link { margin-top: 12px; background: var(--ground); border-radius: 999px; padding: 6px 6px 6px 14px; }
+.vip { background: var(--sakura); color: var(--on-sakura); border-radius: 999px; padding: 1px 8px; font-size: 11px; font-weight: 700; flex: none; }
+
+/* stats */
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.num { font: 500 26px/1.2 var(--round); font-variant-numeric: tabular-nums; }
+.num small { font: 12px var(--sans); color: var(--muted); }
+
+/* lists */
+.main { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 10px; flex: 1; min-height: 0; }
+.main .card { display: flex; flex-direction: column; min-height: 0; }
+.list { overflow-y: auto; flex: 1; margin: 6px -6px 0; padding: 0 6px; }
+.list::-webkit-scrollbar { width: 6px; } .list::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+.acct { padding: 7px 0; border-bottom: 1px solid var(--line); }
+.acct:last-child { border-bottom: none; }
+.dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--faint); }
+.dot.in { background: var(--mint); } .dot.wait { background: var(--fox); animation: pulse 1.2s ease-in-out infinite; } .dot.bad { background: var(--coral); }
+.name { font-weight: 700; }
+.state { font-size: 12px; color: var(--muted); }
+.state.in { color: var(--mint); } .state.wait { color: var(--fox); } .state.bad { color: var(--coral); }
+.x { background: none; color: var(--faint); padding: 4px 6px; opacity: 0; }
+.acct:hover .x, .x.sure { opacity: 1; }
+.x.sure { background: var(--coral); color: var(--on-sakura); }
+.log { font-size: 12px; color: var(--muted); padding: 3px 0; }
+.log b { font-weight: 400; color: var(--ink); }
+.log.good b { color: var(--mint); } .log.warn b { color: var(--fox); } .log.bad b { color: var(--coral); }
+.empty { color: var(--faint); font-size: 13px; padding: 10px 0; }
+
+/* settings sheet */
+.shade { position: fixed; inset: 0; background: #0009; opacity: 0; pointer-events: none; transition: opacity .25s; }
+.sheet { position: fixed; top: 0; right: 0; bottom: 0; width: min(380px, 92vw); background: var(--ground); border-left: 1px solid var(--line);
+  padding: 18px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; transform: translateX(105%); transition: transform .38s cubic-bezier(.33, 1, .68, 1); }
+.open .shade { opacity: 1; pointer-events: auto; }
+.open .sheet { transform: none; transition: transform .5s var(--spring); }
+input[type=text] { font: inherit; width: 100%; background: var(--surface-2); color: var(--ink); border: none; border-radius: 10px; padding: 8px 10px; user-select: text; }
+input.small { width: 64px; text-align: center; padding: 4px 6px; }
+input::placeholder { color: var(--faint); }
+.hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.hint.bad { color: var(--coral); }
+.set { padding: 9px 0; border-bottom: 1px solid var(--line); }
+.set:last-child { border-bottom: none; }
+.tg { width: 38px; height: 22px; border-radius: 999px; background: var(--surface-2); position: relative; flex: none; padding: 0; }
+.tg::after { content: ""; position: absolute; left: 3px; top: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--faint); transition: transform .3s var(--spring), background .2s; }
+.tg.on { background: var(--sakura); } .tg.on:hover { background: var(--sakura-deep); }
+.tg.on::after { transform: translateX(16px); background: var(--on-sakura); }
+
+@keyframes pulse { 50% { opacity: .35; } }
+@keyframes pop { from { transform: scale(.97); opacity: 0; } }
+.head, .stats, .main { animation: pop .45s var(--spring) both; }
+.stats { animation-delay: .05s; } .main { animation-delay: .1s; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+@media (max-width: 560px) { .main { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="head">
+  <div class="row">
+    <div class="fox"><canvas id="fox" width="16" height="8"></canvas></div>
+    <div class="grow"><div class="title" id="title">KitsuneRoblox</div><div class="sub" id="since"></div></div>
+    <button class="icon" id="gear" aria-label="Settings" title="Settings">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+    </button>
+    <button class="pri pill" id="go">Start</button>
+  </div>
+  <div class="row link">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--sakura)" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>
+    <span class="grow ell" id="game">No game link yet</span>
+    <span class="vip" id="vip" hidden>VIP</span>
+    <button class="pill" id="change">Change</button>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="card"><div class="label">In game</div><div class="num" id="sIn" style="color: var(--mint)">0</div></div>
+  <div class="card"><div class="label">RAM</div><div class="num" id="sRam">0</div></div>
+  <div class="card"><div class="label">Rejoins today</div><div class="num" id="sRej" style="color: var(--sakura)">0</div></div>
+</div>
+
+<div class="main">
+  <div class="card">
+    <div class="label">Accounts</div>
+    <div class="list" id="accts"></div>
+    <div class="row" style="margin-top: 10px"><button id="add">+ Add account</button><button id="all">Play all</button></div>
+  </div>
+  <div class="card">
+    <div class="label">Activity</div>
+    <div class="list" id="log"></div>
+  </div>
+</div>
+
+<div id="sheetWrap">
+  <div class="shade" id="shade"></div>
+  <div class="sheet" role="dialog" aria-label="Settings">
+    <div class="row"><div class="title grow">Settings</div><button class="icon" id="close" aria-label="Close settings">✕</button></div>
+    <div class="label">Game link</div>
+    <div class="card">
+      <input type="text" id="link" placeholder="https://www.roblox.com/share?code=…&type=Server" spellcheck="false">
+      <div class="hint" id="linkHint">Private server, share link or game page</div>
+    </div>
+    <div class="label" style="margin-top: 6px">Watching</div>
+    <div class="card">
+      <div class="row set"><span class="grow">Start when the app opens</span><button class="tg" data-k="AutoStart" aria-label="Start when the app opens"></button></div>
+      <div class="row set"><span class="grow">Rejoin after a disconnect<div class="hint" style="margin: 0">Not when you close it yourself</div></span><button class="tg" data-k="Rejoin" aria-label="Rejoin after a disconnect"></button></div>
+      <div class="row set"><span class="grow">Multi-instance</span><button class="tg" data-k="Multi" aria-label="Multi-instance"></button></div>
+    </div>
+    <div class="label" style="margin-top: 6px">Keep alive</div>
+    <div class="card">
+      <div class="row set"><span class="grow">Anti-AFK every <input type="text" class="small" data-n="Minutes" aria-label="Anti-AFK minutes"> min, key <input type="text" class="small" data-n="Key" aria-label="Anti-AFK key"></span><button class="tg" data-k="AntiAfk" aria-label="Anti-AFK"></button></div>
+      <div class="row set"><span class="grow">Trim RAM every <input type="text" class="small" data-n="TrimMin" aria-label="Trim RAM minutes"> min</span><button class="tg" data-k="TrimOn" aria-label="Trim RAM"></button></div>
+    </div>
+    <div class="hint" style="margin-top: auto">Closing this window keeps watching in the tray.</div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const wv = window.chrome && chrome.webview;   // missing when the page is opened in a normal browser (preview)
+const send = (...a) => wv && wv.postMessage(a.join("\t"));
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+// Pixel fox, 16 x 8, two trot frames (o coat, c cream, k ink).
+const body = ["..........o..o..", "..........oooo..", "cc.......oookook", "ccoo....oooooccc", ".coooooooooooo..", "...ooooooooooo.."];
+const frames = [body.concat(["...o.o....o.o...", "...k.k....k.k..."]), body.concat(["....o.o..o...o..", "....k.k..k...k.."])];
+const ink = { o: "#ffa86b", c: "#fff4e8", k: "#2b1d14" };
+const fx = $("fox").getContext("2d");
+function drawFox(f) { fx.clearRect(0, 0, 16, 8); frames[f].forEach((r, y) => [...r].forEach((ch, x) => { if (ink[ch]) { fx.fillStyle = ink[ch]; fx.fillRect(x, y, 1, 1); } })); }
+let trot = 0, trotTimer = 0;
+function setTrot(on) {
+  if (on && !trotTimer && !matchMedia("(prefers-reduced-motion: reduce)").matches) trotTimer = setInterval(() => drawFox(trot ^= 1), 180);
+  if (!on && trotTimer) { clearInterval(trotTimer); trotTimer = 0; drawFox(trot = 0); }
+}
+drawFox(0);
+
+// Settings sheet
+function sheet(open) { $("sheetWrap").classList.toggle("open", open); if (open) setTimeout(() => $("link").focus(), 200); }
+$("gear").onclick = $("change").onclick = () => sheet(true);
+$("close").onclick = $("shade").onclick = () => sheet(false);
+addEventListener("keydown", e => { if (e.key === "Escape") sheet(false); });
+$("link").onchange = e => send("set", "Link", e.target.value.trim());
+document.querySelectorAll(".tg").forEach(b => b.onclick = () => { b.classList.toggle("on"); send("set", b.dataset.k, b.classList.contains("on") ? 1 : 0); });
+document.querySelectorAll("input[data-n]").forEach(i => i.onchange = () => send("set", i.dataset.n, i.value.trim()));
+
+$("go").onclick = () => send(S.running ? "stop" : "start");
+$("add").onclick = () => send("add");
+$("all").onclick = () => send("playall");
+
+let S = {};
+function stateKind(s) { return /^In game/.test(s) ? "in" : /Opening|Waiting/.test(s) ? "wait" : /Log in/.test(s) ? "bad" : ""; }
+
+function acctRow(id, name, state, pid) {
+  const r = el("div", "row acct"), k = stateKind(state);
+  r.append(el("span", "dot " + k));
+  const t = el("div", "grow"); t.append(el("div", "name ell", name), el("div", "state ell " + k, state + (pid ? "  ·  " + pid : "")));
+  r.append(t);
+  if (pid || k !== "wait") {                     // no button while it opens
+    const b = pid ? el("button", "", "Close") : state === "Log in again" ? el("button", "", "Log in") : el("button", "pri", "Play");
+    b.onclick = () => send(pid ? "close" : state === "Log in again" ? "add" : "play", id);
+    r.append(b);
+  }
+  if (!id.startsWith("pid:")) {
+    const x = el("button", "x", "✕"); x.title = "Remove account"; x.setAttribute("aria-label", "Remove " + name);
+    x.onclick = () => { if (x.classList.contains("sure")) return send("remove", id); x.classList.add("sure"); x.textContent = "Remove?"; setTimeout(() => { x.classList.remove("sure"); x.textContent = "✕"; }, 3000); };
+    r.append(x);
+  }
+  return r;
+}
+
+function render(s) {
+  S = s;
+  $("title").textContent = s.running ? "Watching " + s.stats.ingame + (s.stats.ingame === 1 ? " client" : " clients") : "Not watching";
+  $("since").textContent = s.running ? "since " + s.since : "Press Start to watch your clients";
+  $("go").textContent = s.running ? "Stop" : "Start";
+  setTrot(s.running);
+  $("game").textContent = s.game.name || "No game link yet";
+  $("vip").hidden = !s.game.vip;
+  $("sIn").textContent = s.stats.ingame;
+  $("sRam").innerHTML = ""; $("sRam").append(s.stats.ram >= 1024 ? (s.stats.ram / 1024).toFixed(1) : String(s.stats.ram), el("small", "", s.stats.ram >= 1024 ? " GB" : " MB"));
+  $("sRej").textContent = s.stats.rejoins;
+
+  const a = $("accts"); a.replaceChildren();
+  s.accts.forEach(x => a.append(acctRow(x.id, x.name, x.state, x.pid)));
+  s.others.forEach(x => a.append(acctRow("pid:" + x.pid, "Other client", x.state, x.pid)));
+  if (!a.children.length) a.append(el("div", "empty", "Add an account to start."));
+
+  const l = $("log"); l.replaceChildren();
+  s.log.slice().reverse().forEach(line => {
+    const m = /^(\S+)\s+(.*)$/.exec(line) || ["", "", line];
+    const kind = /STOPPED|another account|Can't|failed/i.test(m[2]) ? "bad" : /crash|disconnect|rejoin|didn't open/i.test(m[2]) ? "warn" : /saved|started|In game|Added|window shown/i.test(m[2]) ? "good" : "";
+    const d = el("div", "log " + kind, m[1].slice(0, 5) + "  "); d.append(el("b", "", m[2])); l.append(d);
+  });
+
+  if (document.activeElement !== $("link")) $("link").value = s.set.Link;
+  document.querySelectorAll(".tg").forEach(b => b.classList.toggle("on", !!+s.set[b.dataset.k]));
+  document.querySelectorAll("input[data-n]").forEach(i => { if (document.activeElement !== i) i.value = s.set[i.dataset.n]; });
+  $("linkHint").textContent = s.set.Link && !s.game.ok ? "That isn't a game link I can open" : "Private server, share link or game page";
+  $("linkHint").classList.toggle("bad", !!(s.set.Link && !s.game.ok));
+  if (s.askLink) sheet(true);
+}
+
+if (wv) wv.addEventListener("message", e => render(e.data));
+send("ready");
+</script>
+</body>
+</html>

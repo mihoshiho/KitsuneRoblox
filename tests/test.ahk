@@ -43,6 +43,14 @@ Check(GameLink("https://www.roblox.com/games/8304191830/Anime-Adventures?private
 Check(GameLink("https://www.roblox.com/share?code=xyz789&type=Server") = "roblox://navigation/share_links?code=xyz789&type=Server", "share link")
 Check(GameLink("https://www.roblox.com/games/8304191830/Anime") = "roblox://experiences/start?placeId=8304191830", "game page link")
 Check(GameLink("hello") = "", "not a link")
+Check(Json(Map("a", 1, "b", ["x", 2.5], "c", {d: 'q"\' "`n"})) = '{"a":1,"b":["x",2.5],"c":{"d":"q\"\\\n"}}', "json of map, array, object, escapes")
+g := GameInfo("https://www.roblox.com/games/8304191830/x?privateServerLinkCode=abc")
+Check(g.ok && g.vip && g.place = "8304191830", "private server: vip with place id")
+g := GameInfo("https://www.roblox.com/share?code=xyz&type=Server")
+Check(g.ok && g.vip && g.place = "", "share link: vip, no place id")
+g := GameInfo("https://www.roblox.com/games/8304191830/Anime")
+Check(g.ok && !g.vip, "game page: not vip")
+Check(!GameInfo("hello").ok, "not a link: not ok")
 
 ; Log states (lines copied from a real Roblox log)
 join := "2026-11-23T07:00:22.368Z,13.368044,ba64,6 [FLog::Output] ! Joining game 'f314' place 8304191830 at 10.32.39.67"
