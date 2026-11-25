@@ -125,8 +125,9 @@ class App {
             try FileDelete(file)
             return this.Log("Update download failed or didn't match. Try again later")
         }
-        this.Save()
-        Run('"' file '" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART')
+        this.Save(), this.Running := false, this.HideUi()   ; not Running: no "still watching" note
+        ; start Setup 3 s after this app is gone: started at once, it found the exe still in use and quietly gave up
+        Run(A_ComSpec ' /c ping -n 4 127.0.0.1 >nul & "' file '" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG="' A_Temp '\KitsuneRoblox-update.log"', , "Hide")
         ExitApp()
     }
 
