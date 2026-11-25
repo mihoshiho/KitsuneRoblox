@@ -34,6 +34,7 @@ Check(!NameExists("Mutex", "KitsuneTest_" me ".mtx"), "mutex name gone")
 
 ; Session filter
 Check(SessionOf(me) != "", "own session read")
+Check(RedirectGuarded() = 0, "no redirection guard here")
 found := false
 for pid in SessionProcs("AutoHotkey64.exe")
     found := found || pid = me

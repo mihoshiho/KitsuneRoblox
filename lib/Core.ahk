@@ -230,3 +230,9 @@ GameInfo(url) {
     ok := GameLink(url) != "", vip := ok && RegExMatch(url, "i)privateServerLinkCode=|share\?code=.*type=Server")
     return {ok: ok, vip: vip, place: RegExMatch(url, "games/(\d+)", &m) ? m[1] : ""}
 }
+
+; True if this process has Windows' "redirection guard" on (it then can't follow folder links a user made).
+RedirectGuarded() {
+    buf := Buffer(4, 0)                         ; ProcessRedirectionTrustPolicy = 16, bit 0 = enforce
+    return DllCall("GetProcessMitigationPolicy", "Ptr", -1, "Int", 16, "Ptr", buf, "UPtr", 4) && NumGet(buf, "UInt") & 1
+}

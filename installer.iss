@@ -41,5 +41,6 @@ Name: "{userprograms}\KitsuneRoblox"; Filename: "{app}\KitsuneRoblox.exe"
 Name: "{userstartup}\KitsuneRoblox"; Filename: "{app}\KitsuneRoblox.exe"; Tasks: startup
 
 [Run]
-; also after a quiet update: the app starts again by itself
-Filename: "{app}\KitsuneRoblox.exe"; Description: "Open KitsuneRoblox"; Flags: nowait postinstall
+; also after a quiet update: the app starts again by itself. Through Explorer: started by Setup directly,
+; the app gets Setup's "redirection guard" and can't open Roblox through the per-account folder links.
+Filename: "{win}\explorer.exe"; Parameters: """{app}\KitsuneRoblox.exe"""; Description: "Open KitsuneRoblox"; Flags: nowait postinstall

@@ -19,7 +19,7 @@ App.Init()
 class App {
     static Exe := "RobloxPlayerBeta.exe"
     static Win := "Roblox ahk_exe RobloxPlayerBeta.exe ahk_class WINDOWSCLIENT"
-    static Version := "1.0.0"
+    static Version := "1.0.1"
     ;@Ahk2Exe-Let U_version = %A_PriorLine~U)^(.+")(.*)".*$~$2%
     ;@Ahk2Exe-SetVersion %U_version%
     static Repo := "mihoshiho/KitsuneRoblox", Update := 0
@@ -37,6 +37,11 @@ class App {
     static TickFn := ObjBindMethod(App, "Tick")
 
     static Init() {
+        ; Started with "redirection guard" (Inno Setup passes it on), Roblox can't be opened through the
+        ; per-account folder links: start again from Explorer, which runs it without. Once a minute at most (no loop).
+        DirCreate(this.Data)
+        if A_IsCompiled && RedirectGuarded() && DateDiff(A_Now, IniRead(this.Ini, "Main", "Unguard", 19000101), "Seconds") > 60
+            return (IniWrite(A_Now, this.Ini, "Main", "Unguard"), Run('explorer.exe "' A_ScriptFullPath '"'), ExitApp())
         ; one app at a time: a second start shows the open one
         static showMsg := DllCall("RegisterWindowMessage", "Str", "KitsuneRoblox_show", "UInt")
         if NameExists("Mutex", "KitsuneRoblox_app")
@@ -533,7 +538,8 @@ class App {
             if a.profile = "" || !DirExist(this.Profiles "\" a.profile)
                 return (a.state := "Log in again", this.Log(a.name ": click Add account and log in to it again"))
             if (exe := AcctExe(this.Profiles "\" a.profile)) = ""
-                return (a.state := "Idle", this.Log("Can't find Roblox: open it once with Fishstrap"))
+                return (a.state := "Idle", this.Log("Can't find Roblox: open it once with Fishstrap ("
+                    . (src := RegRead("HKCU\Software\Fishstrap", "PlayerPath", "")) ", found " (FileExist(src "\RobloxPlayerBeta.exe") != "") ")"))
             ; Roblox logs in with its own saved login file: put this account's in place first
             live := RobloxLogin(), saved := this.Profiles "\" a.profile "\RobloxCookies.dat"
             if FileExist(saved)
