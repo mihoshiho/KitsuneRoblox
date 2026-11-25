@@ -14,6 +14,9 @@
 SetWorkingDir(A_ScriptDir)                          ; the installed exe finds WebView2Loader.dll next to it
 if A_Args.Length && A_Args[1] = "--keeper"
     A_IconHidden := true, KeepLock()                ; never returns
+if A_Args.Length > 1 && A_Args[1] = "--check"       ; update check in its own process: a slow network never freezes the window
+    rel := ParseRelease(HttpText("https://api.github.com/repos/" App.Repo "/releases/latest"), App.Repo)
+    , FileOpen(A_Args[2], "w", "UTF-8-RAW").Write(rel ? rel.ver "`n" rel.setup "`n" rel.sha : ""), ExitApp()
 App.Init()
 
 class App {
@@ -90,10 +93,22 @@ class App {
 
     ; Newest GitHub release newer than this one: the header shows "Update to vX".
     static CheckUpdate() {
-        if !(rel := ParseRelease(HttpText("https://api.github.com/repos/" this.Repo "/releases/latest"), this.Repo))
-            || !VerNewer(rel.ver, this.Version) || this.Update && this.Update.ver = rel.ver
+        f := A_Temp "\KitsuneRoblox-check.txt"
+        try FileDelete(f)
+        Run('"' A_ScriptFullPath '" --check "' f '"')
+        SetTimer(this.ReadCheck.Bind(this, f, A_TickCount), -2000)
+    }
+
+    static ReadCheck(f, at) {
+        if !FileExist(f)
+            return A_TickCount - at < 60000 ? SetTimer(this.ReadCheck.Bind(this, f, at), -2000) : 0
+        try l := StrSplit(FileRead(f, "UTF-8"), "`n")
+        catch                                         ; still being written
+            return SetTimer(this.ReadCheck.Bind(this, f, at), -1000)
+        base := "https://github.com/" this.Repo "/releases/download/"   ; the temp file is checked again: only this repo's links
+        if l.Length < 3 || InStr(l[2], base) != 1 || InStr(l[3], base) != 1 || !VerNewer(l[1], this.Version) || this.Update && this.Update.ver = l[1]
             return
-        this.Update := rel, this.Log("Update v" rel.ver " is ready: click it at the top")
+        this.Update := {ver: l[1], setup: l[2], sha: l[3]}, this.Log("Update v" l[1] " is ready: click it at the top")
     }
 
     ; Download the installer, check it, run it quietly and quit. It starts the app again (watching starts by itself).

@@ -32,13 +32,15 @@ ParseRelease(json, repo) {
     return setup && sha ? {ver: t[1], setup: setup, sha: sha} : 0
 }
 
-; GET a URL as text (blocking, short timeouts). "" on any error.
+; GET a URL as text (blocking). "" on any error. Tried twice: the first lookup of a host can take over 10 s here.
 HttpText(url) {
-    try {
-        r := ComObject("WinHttp.WinHttpRequest.5.1"), r.SetTimeouts(3000, 3000, 5000, 5000)
-        r.Open("GET", url), r.SetRequestHeader("User-Agent", "KitsuneRoblox"), r.Send()
-        return r.Status = 200 ? r.ResponseText : ""
-    }
+    loop 2
+        try {
+            r := ComObject("WinHttp.WinHttpRequest.5.1"), r.SetTimeouts(10000, 10000, 10000, 10000)
+            r.Open("GET", url), r.SetRequestHeader("User-Agent", "KitsuneRoblox"), r.Send()
+            if r.Status = 200
+                return r.ResponseText
+        }
     return ""
 }
 
