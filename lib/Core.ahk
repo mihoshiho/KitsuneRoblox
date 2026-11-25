@@ -89,7 +89,7 @@ GameLink(url) {
     if RegExMatch(url, "share\?code=([\w-]+).*type=Server", &m)
         return "roblox://navigation/share_links?code=" m[1] "&type=Server"
     if RegExMatch(url, "games/(\d+)", &m)
-        return "roblox://placeId=" m[1]
+        return "roblox://experiences/start?placeId=" m[1]
     return ""
 }
 
@@ -188,19 +188,6 @@ Hung(log) {
     return false
 }
 
-; Own a named lock and keep it (h keeps the handle between calls). False while another process holds it.
-; Held by us, Roblox clients never own ROBLOX_singletonMutex, so one closing can't make the others quit.
-; Named objects a new client uses to find this one: the old one-client event, and the NoReload
-; handoff (seen Nov 2026) that passes a new launch's join into this window instead of opening one.
-Lockers(pid) {
-    objs := Map("ROBLOX_singletonEvent", "Event", "RBXMAINWND-*", "Section")
-    try {
-        p := StrReplace(ProcessGetPath(pid), "\", "_")     ; C:_Users_..._RobloxPlayerBeta.exe
-        objs[p ".mtx"] := "Mutant", objs[p ".shm"] := "Section"
-    }
-    return objs
-}
-
 ; True if a named mutex or event exists (kind "Mutex" or "Event").
 NameExists(kind, name) {
     if h := DllCall("Open" kind, "UInt", 0x100000, "Int", 0, "Str", name, "Ptr")
@@ -208,6 +195,8 @@ NameExists(kind, name) {
     return !!h
 }
 
+; Own a named lock and keep it (h keeps the handle between calls). False while another process holds it.
+; Held by us, Roblox clients never own ROBLOX_singletonMutex, so one closing can't make the others quit.
 OwnMutex(name, &h) {
     if !h
         h := DllCall("CreateMutex", "Ptr", 0, "Int", 0, "Str", name, "Ptr")

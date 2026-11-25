@@ -13,9 +13,9 @@ class App {
     static Ini := A_ScriptDir "\KitsuneRoblox.ini"
     static AccIni := A_ScriptDir "\accounts.ini"    ; names and ids only: the logins live in the profiles below
     static Running := false
-    static Profiles := EnvGet("LOCALAPPDATA") "\KitsuneRoblox\profiles"   ; one saved login browser per account (Edge encrypts it)
+    static Profiles := EnvGet("LOCALAPPDATA") "\KitsuneRoblox\profiles"   ; per account: login browser, saved Roblox login, own Roblox path
     static Accts := Map()           ; user id -> {name, tracker, profile, pid, state}
-    static Clients := Map()         ; pid -> {acct, log, pos, state, outSince, join, born, left, uid, saved, gone, trimAt}
+    static Clients := Map()         ; pid -> {acct, log, pos, state, outSince, join, born, uid, saved, gone, trimAt}
     static Poked := Map()           ; hwnd -> tick of last anti-AFK key
     static Queue := [], Launching := 0, Fails := 0, Rows := [], Lines := [], LockSeen := false
     static TickFn := ObjBindMethod(App, "Tick")
@@ -173,7 +173,7 @@ class App {
         if name = ""
             return
         dir := this.Profiles "\" name
-        SetTimer(() => (DirExist(dir) && DirDelete(dir, true)), -5000)   ; Edge lets go of the folder a moment later
+        SetTimer(() => (DirExist(dir) && (DropJunctions(dir), DirDelete(dir, true))), -5000)   ; Edge lets go of the folder a moment later
     }
 
     static Remove() {
@@ -224,7 +224,7 @@ class App {
     ; ---------- watching ----------
 
     static Start() {
-        if PlayPage(this.Link.Value) = ""
+        if GameLink(this.Link.Value) = ""
             return (this.Log("Paste a game link first"), false)
         this.Save()
         this.Running := true, this.Fails := 0, this.Poked := Map()
@@ -236,7 +236,7 @@ class App {
     }
 
     static Stop(why, alert := false) {
-        this.Running := false, this.Queue := [], this.EndLaunch()
+        this.Running := false, this.Queue := [], this.Launching := 0
         SetTimer(this.TickFn, 0)
         for id, a in this.Accts
             if a.state = "Waiting" || a.state = "Opening"
@@ -261,7 +261,7 @@ class App {
             alive[pid] := 1
             if !this.Clients.Has(pid) {
                 acct := this.AcctOf(pid)
-                this.Clients[pid] := {acct: acct, log: "", pos: 0, state: "starting", outSince: 0, join: -99, born: A_TickCount - AgeOf(pid) * 1000, left: 0, uid: "", saved: false, gone: 0, trimAt: 0}
+                this.Clients[pid] := {acct: acct, log: "", pos: 0, state: "starting", outSince: 0, join: -99, born: A_TickCount - AgeOf(pid) * 1000, uid: "", saved: false, gone: 0, trimAt: 0}
                 if acct
                     this.Accts[acct].pid := pid, this.Accts[acct].state := "In game"
             }
@@ -280,20 +280,9 @@ class App {
                 }
                 continue
             }
-            if this.Multi.Value && (!c.left || c.left.Count) && (c.left || A_TickCount - c.born < 60000) {   ; an old client: freed before
-                c.left := c.left || Lockers(pid)
-                if A_TickCount - c.born < 60000 {
-                    if CloseSingleton(pid, c.left) && !c.left.Count
-                        this.Log("Client " pid ": one-client locks freed")
-                } else {
-                    for name in c.left
-                        this.Log("Client " pid ": not found " name)
-                    c.left := Map()
-                }
-            }
             if this.ReadLog(pid, c) = "warn"
                 return this.Stop("STOPPED: " this.Name(c.acct, pid) " was kicked or warned. Check it, then start again", true)
-            if c.acct = "" && c.uid && this.Accts.Has(c.uid) && !this.Accts[c.uid].pid {   ; Roblox no longer puts our tracker id in the command line
+            if c.acct = "" && c.uid && this.Accts.Has(c.uid) && !this.Accts[c.uid].pid {   ; a client you opened yourself, logged in as a saved account
                 c.acct := c.uid, this.Accts[c.uid].pid := pid, this.Accts[c.uid].state := "In game"
                 this.Log("Client " pid " is " this.Accts[c.uid].name)
             }
@@ -366,14 +355,9 @@ class App {
         return true
     }
 
-    ; Which saved account a client belongs to: our browsertrackerid is in its command line.
-    static AcctOf(pid) {
-        cmd := CmdLine(pid)
-        for id, a in this.Accts
-            if RegExMatch(cmd, "(-b |browsertrackerid:)" a.tracker "\b")
-                return id
-        return ""
-    }
+    ; Which saved account a client belongs to: it runs from that account's own Roblox path.
+    ; The command line keeps the junction path (the process path shows the real folder).
+    static AcctOf(pid) => AcctOfPath(LTrim(CmdLine(pid), '"'), this.Accts, this.Profiles)
 
     static ReadLog(pid, c) {
         if c.log = "" && !(c.log := FindLog(pid))
@@ -397,15 +381,13 @@ class App {
     static Launch(alive) {
         if (l := this.Launching) {
             for pid in alive
-                if !l.before.Has(pid) && this.Clients.Has(pid) && (l.acct = "" || this.Clients[pid].acct = l.acct || this.Clients[pid].acct = "") {
-                    if l.acct && this.Clients[pid].acct = ""
-                        this.Own(pid, l.acct)         ; shortcut: a client you open yourself in this moment gets this account too
-                    this.EndLaunch()
+                if !l.before.Has(pid) && this.Clients.Has(pid) && (l.acct = "" || this.Clients[pid].acct = l.acct) {
+                    this.Launching := 0
                     return (this.Fails := 0, this.Log("In game: " this.Name(l.acct, pid)))
                 }
             if A_TickCount - l.at < 90000
                 return
-            this.EndLaunch()
+            this.Launching := 0
             if ++this.Fails >= 3
                 return this.Stop("STOPPED: Roblox didn't open 3 times. Check the screen", true)
             this.Log("Roblox didn't open. Trying again")
@@ -417,23 +399,20 @@ class App {
             if c.acct && !c.saved && !c.uid && A_TickCount - c.born < 120000
                 return
         ; never close Fishstrap here: it holds ROBLOX_singletonMutex, and killing it made every open client quit
-        acct := this.Queue.RemoveAt(1), dir := ""
-        if acct = "" {
-            if (link := GameLink(this.Link.Value)) = ""
-                return this.Log("Can't rejoin: the game link isn't a link I can open")
+        acct := this.Queue.RemoveAt(1)
+        if (link := GameLink(this.Link.Value)) = ""
+            return this.Log("Can't open: the game link isn't a link I can open")
+        if acct = ""
             Run('explorer.exe "' link '"')
-        } else {
+        else {
             if !this.Accts.Has(acct)
                 return
             a := this.Accts[acct]
             if a.profile = "" || !DirExist(this.Profiles "\" a.profile)
                 return (a.state := "Log in again", this.Log(a.name ": click Add account and log in to it again"))
-            if (exe := EdgeExe()) = ""
-                return (a.state := "Idle", this.Log("Can't find Edge"))
-            dir := this.Profiles "\" a.profile "\EBWebView"   ; the login window's browser data: Edge reads it as is
-            if !EdgeProcs(dir).Length
-                AllowRoblox(dir)
-            ; Roblox now logs in with its own saved login, not Edge's: put this account's in place first
+            if (exe := AcctExe(this.Profiles "\" a.profile)) = ""
+                return (a.state := "Idle", this.Log("Can't find Roblox: open it once with Fishstrap"))
+            ; Roblox logs in with its own saved login file: put this account's in place first
             live := RobloxLogin(), saved := this.Profiles "\" a.profile "\RobloxCookies.dat"
             if FileExist(saved)
                 FileCopy(saved, live, true)
@@ -442,56 +421,10 @@ class App {
                 this.Log(a.name ": no saved Roblox login yet. Sign in to it in the Roblox window")
             }
             a.state := "Opening"
-            Run('"' exe '" --user-data-dir=' dir ' --window-position=-32000,-32000 --no-first-run --no-default-browser-check --new-window "'
-                . PlayPage(this.Link.Value) '"', , , &epid)
+            Run('"' exe '" ' link)                    ; its own path: Roblox doesn't hand the join to an open client
         }
-        this.Launching := {acct: acct, at: A_TickCount, before: alive, edge: dir, hid: Map()}
-        if dir != ""
-            this.HideEdge(this.Launching, epid)
+        this.Launching := {acct: acct, at: A_TickCount, before: alive}
         this.Log("Opening " (acct ? this.Accts[acct].name : "the game"))
-    }
-
-    ; The new client is this account's. Its browsertrackerid (Edge profile's own) finds it again after a restart.
-    static Own(pid, acct) {
-        if !this.Accts.Has(acct)
-            return
-        a := this.Accts[acct], this.Clients[pid].acct := acct, a.pid := pid, a.state := "In game"
-        if RegExMatch(CmdLine(pid), "browsertrackerid:(\d+)", &m)
-            a.tracker := m[1], IniWrite(m[1], this.AccIni, acct, "Tracker")
-    }
-
-    ; Keep the account's Edge hidden while Roblox opens. No client after 45 s: show it so you can see why
-    ; (login expired, captcha, a Roblox message) and click yourself.
-    static HideEdge(l, pid) {
-        if this.Launching != l
-            return
-        if A_TickCount - l.at > 45000 {               ; a normal launch takes about 25 s
-            DetectHiddenWindows(true)
-            for hwnd in l.hid
-                try WinShow(hwnd), WinMove(100, 100, 900, 700, hwnd), WinActivate(hwnd)
-            return this.Log("Roblox didn't open yet: Edge is shown, check it")
-        }
-        for hwnd in WinGetList("ahk_pid " pid " ahk_class Chrome_WidgetWin_1")   ; visible ones only
-            try WinHide(hwnd), l.hid[hwnd] := 1
-        SetTimer(() => this.HideEdge(l, pid), -300)
-    }
-
-    ; Launch over: close the account's Edge (asks its windows first, then ends what is left).
-    static EndLaunch() {
-        l := this.Launching, this.Launching := 0
-        if !l || l.edge = ""
-            return
-        old := A_DetectHiddenWindows, DetectHiddenWindows(true)   ; Tick runs on after this: give the setting back
-        for hwnd in l.hid
-            try WinClose(hwnd)
-        DetectHiddenWindows(old)
-        dir := l.edge
-        SetTimer(() => this.KillEdge(dir), -5000)
-    }
-
-    static KillEdge(dir) {
-        for pid in EdgeProcs(dir)
-            try ProcessClose(pid)
     }
 
     ; Roblox kicks after 20 min with no input. Background key messages don't count, so focus each

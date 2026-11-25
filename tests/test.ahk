@@ -30,7 +30,6 @@ objs := Map("KitsuneTest_" me ".mtx", "Mutant", "KitsuneTest_" me ".shm", "Secti
 Check(CloseSingleton(me, objs) = 3, "mutex, section and prefix name closed")
 Check(objs.Count = 1 && objs.Has("KitsuneTest_none"), "only the missing name is left")
 Check(!NameExists("Mutex", "KitsuneTest_" me ".mtx"), "mutex name gone")
-Check(InStr(Lockers(me)[StrReplace(A_AhkPath, "\", "_") ".mtx"], "Mutant"), "Lockers names the exe-path lock")
 
 ; Session filter
 Check(SessionOf(me) != "", "own session read")
@@ -42,7 +41,7 @@ Check(found, "SessionProcs lists this process")
 ; Game links
 Check(GameLink("https://www.roblox.com/games/8304191830/Anime-Adventures?privateServerLinkCode=abc-123") = "roblox://placeId=8304191830&linkCode=abc-123", "private server link")
 Check(GameLink("https://www.roblox.com/share?code=xyz789&type=Server") = "roblox://navigation/share_links?code=xyz789&type=Server", "share link")
-Check(GameLink("https://www.roblox.com/games/8304191830/Anime") = "roblox://placeId=8304191830", "game page link")
+Check(GameLink("https://www.roblox.com/games/8304191830/Anime") = "roblox://experiences/start?placeId=8304191830", "game page link")
 Check(GameLink("hello") = "", "not a link")
 
 ; Log states (lines copied from a real Roblox log)
@@ -83,28 +82,26 @@ FileAppend("", dir "\0.748_20200101T000000Z_Player_CCCCC_last.log")
 Check(FindLog(me, dir) = good, "FindLog picks the log started with the process")
 DirDelete(dir, true)
 
-; Accounts: play page, tracker, command line
-Check(PlayPage("https://www.roblox.com/share?code=abc123&type=Server") = "https://www.roblox.com/share?code=abc123&type=Server", "share link opens as is")
-Check(PlayPage("www.roblox.com/games/8304191830/x?privateServerLinkCode=42") = "https://www.roblox.com/games/8304191830/x?privateServerLinkCode=42", "private server link gets https")
-Check(PlayPage("https://www.roblox.com/games/8304191830/Anime") = "https://www.roblox.com/games/start?placeId=8304191830", "game page uses games/start")
-Check(PlayPage("https://evil.example/share?code=x") = "", "other sites are not opened")
-Check(PlayPage("hello") = "", "not a link")
+; Accounts: tracker, command line
 Check(StrLen(NewTracker()) = 12, "tracker id is 12 digits")
 Check(InStr(CmdLine(me), "test.ahk"), "command line read")
 
-; Edge: found, profile prefs, own-profile process filter
-Check(FileExist(EdgeExe()), "Edge found")
-dir := A_Temp "\kr-edge-" me
-AllowRoblox(dir)
-Check(InStr(FileRead(dir "\Default\Preferences"), '{"protocol_handler":{"allowed_origin_protocol_pairs":{"https://www.roblox.com":{"roblox-player":true}}}}'), "new profile: Roblox links allowed")
-FileOpen(dir "\Default\Preferences", "w", "UTF-8-RAW").Write('{"browser":{"x":1}}')
-AllowRoblox(dir)
-t := FileRead(dir "\Default\Preferences")
-Check(InStr(t, '"roblox-player":true}}},"browser":{"x":1}}'), "old prefs kept, Roblox links added")
-AllowRoblox(dir)
-Check(FileRead(dir "\Default\Preferences") = t, "second call changes nothing")
-DirDelete(dir, true)
-Check(!EdgeProcs(dir).Length, "no Edge on a test profile")
+; Own Roblox path per account: junction made, moved to a new version, removed without touching Roblox's files
+root := A_Temp "\kr-junc-" me, v1 := root "\Versions\version-aaa", v2 := root "\Versions\version-bbb", prof := root "\profiles\p1"
+DirCreate(v1), DirCreate(v2), DirCreate(prof)
+FileAppend("x", v1 "\RobloxPlayerBeta.exe"), FileAppend("x", v2 "\RobloxPlayerBeta.exe")
+Check(AcctExe(prof, v1) = prof "\Roblox-version-aaa\RobloxPlayerBeta.exe", "junction made")
+Check(InStr(FileGetAttrib(prof "\Roblox-version-aaa"), "L"), "it is a link, not a copy")
+Check(AcctExe(prof, v1) = prof "\Roblox-version-aaa\RobloxPlayerBeta.exe", "second call: same path")
+Check(AcctExe(prof, v2) = prof "\Roblox-version-bbb\RobloxPlayerBeta.exe" && !DirExist(prof "\Roblox-version-aaa"), "new version: old link gone")
+Check(FileExist(v1 "\RobloxPlayerBeta.exe"), "old version's files kept")
+Check(AcctExe(prof, root "\Versions\none") = "", "no Roblox there: empty")
+DropJunctions(prof), DirDelete(prof, true)
+Check(FileExist(v2 "\RobloxPlayerBeta.exe"), "profile deleted: Roblox's files kept")
+DirDelete(root, true)
+accts := Map("111", {profile: "p1"}, "222", {profile: "p12"}, "333", {profile: ""})
+Check(AcctOfPath("C:\pr\p12\Roblox-v\RobloxPlayerBeta.exe", accts, "C:\pr") = "222", "path finds its account")
+Check(AcctOfPath("C:\Fishstrap\Versions\v\RobloxPlayerBeta.exe", accts, "C:\pr") = "", "Fishstrap's own path: no account")
 
 ; Trim on this process: 300 MB touched, trim moves it out, and no cap stays after
 big := Buffer(300 << 20)
