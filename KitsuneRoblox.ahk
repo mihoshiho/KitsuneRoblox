@@ -385,7 +385,7 @@ class App {
             for pid in alive
                 if !l.before.Has(pid) && this.Clients.Has(pid) && (l.acct = "" || this.Clients[pid].acct = l.acct) {
                     this.Launching := 0
-                    return (this.Fails := 0, this.Log("In game: " this.Name(l.acct, pid)))
+                    return (this.Fails := 0, this.Log("Roblox started: " this.Name(l.acct, pid) ". Its window shows in a moment"), this.Front(pid, A_TickCount))
                 }
             if A_TickCount - l.at < 90000
                 return
@@ -427,6 +427,15 @@ class App {
         }
         this.Launching := {acct: acct, at: A_TickCount, before: alive}
         this.Log("Opening " (acct ? this.Accts[acct].name : "the game"))
+    }
+
+    ; Bring a client we started to the front once its window shows (started directly, Windows opens it behind).
+    ; Not while you type, so it never takes your keys. Gives up after 1 min.
+    static Front(pid, at) {
+        if (hwnd := WinExist(this.Win " ahk_pid " pid)) && A_TimeIdlePhysical > 3000
+            return (WinActivate(hwnd), this.Log(this.Name(this.Clients.Has(pid) ? this.Clients[pid].acct : "", pid) ": window shown"))
+        if A_TickCount - at < 60000 && ProcessExist(pid)
+            SetTimer(() => this.Front(pid, at), -1000)
     }
 
     ; Roblox kicks after 20 min with no input. Background key messages don't count, so focus each
