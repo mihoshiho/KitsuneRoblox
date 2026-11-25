@@ -1,6 +1,7 @@
 #Requires AutoHotkey v2.0
 #Include ..\lib\Core.ahk
 #Include ..\lib\Accounts.ahk
+#Include ..\lib\Update.ahk
 ; Run: tools\AutoHotkey64.exe /ErrorStdOut tests\test.ahk   (prints results, exit code = failures)
 
 fails := 0
@@ -51,6 +52,19 @@ Check(g.ok && g.vip && g.place = "", "share link: vip, no place id")
 g := GameInfo("https://www.roblox.com/games/8304191830/Anime")
 Check(g.ok && !g.vip, "game page: not vip")
 Check(!GameInfo("hello").ok, "not a link: not ok")
+
+; Updates: version compare, release JSON, file hash
+Check(VerNewer("1.0.10", "1.0.9") && VerNewer("v1.1", "1.0.9") && !VerNewer("1.0.0", "1.0") && !VerNewer("0.9", "1.0.0"), "version compare")
+rel := '{"tag_name":"v1.2.0","assets":[{"browser_download_url":"https://github.com/mihoshiho/KitsuneRoblox/releases/download/v1.2.0/KitsuneRoblox-Setup.exe"},'
+    . '{"browser_download_url":"https://github.com/mihoshiho/KitsuneRoblox/releases/download/v1.2.0/KitsuneRoblox-Setup.exe.sha256"}]}'
+r := ParseRelease(rel, "mihoshiho/KitsuneRoblox")
+Check(r && r.ver = "1.2.0" && InStr(r.setup, "/KitsuneRoblox-Setup.exe") && InStr(r.sha, ".sha256"), "release parsed")
+Check(!ParseRelease(StrReplace(rel, "github.com/mihoshiho/", "github.com/evil/"), "mihoshiho/KitsuneRoblox"), "links of another repo are refused")
+Check(!ParseRelease("", "mihoshiho/KitsuneRoblox"), "no release: nothing")
+f := A_Temp "\kr-sha-" me ".txt"
+FileOpen(f, "w", "UTF-8-RAW").Write("abc")
+Check(FileSha256(f) = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", "sha-256 of abc")
+FileDelete(f)
 
 ; Log states (lines copied from a real Roblox log)
 join := "2026-11-23T07:00:22.368Z,13.368044,ba64,6 [FLog::Output] ! Joining game 'f314' place 8304191830 at 10.32.39.67"

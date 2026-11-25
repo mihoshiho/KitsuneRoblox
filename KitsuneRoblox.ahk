@@ -1,17 +1,31 @@
 #Requires AutoHotkey v2.0
-#SingleInstance Force
+#SingleInstance Off
+;@Ahk2Exe-SetName KitsuneRoblox
+;@Ahk2Exe-SetDescription KitsuneRoblox
+;@Ahk2Exe-SetCopyright mihoshiho
+;@Ahk2Exe-SetMainIcon ui\fox.ico
 #Include lib\Core.ahk
 #Include lib\Accounts.ahk
+#Include lib\Keeper.ahk
+#Include lib\Update.ahk
 #Include lib\WebView2\WebView2.ahk
 
 ; KitsuneRoblox: accounts, anti-AFK, auto rejoin and multi-instance for Roblox clients in this Windows session.
+SetWorkingDir(A_ScriptDir)                          ; the installed exe finds WebView2Loader.dll next to it
+if A_Args.Length && A_Args[1] = "--keeper"
+    A_IconHidden := true, KeepLock()                ; never returns
 App.Init()
 
 class App {
     static Exe := "RobloxPlayerBeta.exe"
     static Win := "Roblox ahk_exe RobloxPlayerBeta.exe ahk_class WINDOWSCLIENT"
-    static Ini := A_ScriptDir "\KitsuneRoblox.ini"
-    static AccIni := A_ScriptDir "\accounts.ini"    ; names and ids only: the logins live in the profiles below
+    static Version := "1.0.0"
+    ;@Ahk2Exe-Let U_version = %A_PriorLine~U)^(.+")(.*)".*$~$2%
+    ;@Ahk2Exe-SetVersion %U_version%
+    static Repo := "mihoshiho/KitsuneRoblox", Update := 0
+    static Data := EnvGet("LOCALAPPDATA") "\KitsuneRoblox"   ; your settings and accounts: kept when the app updates
+    static Ini := EnvGet("LOCALAPPDATA") "\KitsuneRoblox\KitsuneRoblox.ini"
+    static AccIni := EnvGet("LOCALAPPDATA") "\KitsuneRoblox\accounts.ini"    ; names and ids only: the logins live in the profiles below
     static Running := false
     static Profiles := EnvGet("LOCALAPPDATA") "\KitsuneRoblox\profiles"   ; per account: login browser, saved Roblox login, own Roblox path
     static Accts := Map()           ; user id -> {name, tracker, profile, pid, state}
@@ -23,6 +37,18 @@ class App {
     static TickFn := ObjBindMethod(App, "Tick")
 
     static Init() {
+        ; one app at a time: a second start shows the open one
+        static showMsg := DllCall("RegisterWindowMessage", "Str", "KitsuneRoblox_show", "UInt")
+        if NameExists("Mutex", "KitsuneRoblox_app")
+            return (DllCall("PostMessage", "Ptr", 0xFFFF, "UInt", showMsg, "Ptr", 0, "Ptr", 0), ExitApp())
+        DllCall("CreateMutex", "Ptr", 0, "Int", 0, "Str", "KitsuneRoblox_app", "Ptr")
+        OnMessage(showMsg, (*) => (this.OpenUi(), 0))
+        DirCreate(this.Data)
+        for f in ["KitsuneRoblox.ini", "accounts.ini"]     ; older versions kept these next to the script
+            if !FileExist(this.Data "\" f) && FileExist(A_ScriptDir "\" f)
+                FileCopy(A_ScriptDir "\" f, this.Data "\" f)
+        if !A_IsCompiled
+            TraySetIcon(A_ScriptDir "\ui\fox.ico")
         g := this.G := Gui("+Resize +MinSize520x560", "KitsuneRoblox")
         g.BackColor := "191919"
         DllCall("dwmapi\DwmSetWindowAttribute", "Ptr", g.Hwnd, "UInt", 20, "Int*", 1, "UInt", 4)   ; dark title bar
@@ -53,6 +79,35 @@ class App {
             this.Start()
         if this.GameName = ""
             this.FetchName()
+        if A_IsCompiled                               ; the source copy updates with git, not here
+            SetTimer(() => this.CheckUpdate(), -20000), SetTimer(() => this.CheckUpdate(), 6 * 3600000)
+    }
+
+    ; Newest GitHub release newer than this one: the header shows "Update to vX".
+    static CheckUpdate() {
+        if !(rel := ParseRelease(HttpText("https://api.github.com/repos/" this.Repo "/releases/latest"), this.Repo))
+            || !VerNewer(rel.ver, this.Version) || this.Update && this.Update.ver = rel.ver
+            return
+        this.Update := rel, this.Log("Update v" rel.ver " is ready: click it at the top")
+    }
+
+    ; Download the installer, check it, run it quietly and quit. It starts the app again (watching starts by itself).
+    static DoUpdate() {
+        if !(u := this.Update)
+            return
+        if this.Launching
+            return this.Log("Roblox is opening: update after it")
+        this.Log("Downloading update v" u.ver "…"), this.Push()
+        file := A_Temp "\KitsuneRoblox-Setup-" u.ver ".exe"
+        want := RegExMatch(HttpText(u.sha), "i)^\s*([0-9a-f]{64})", &m) ? StrLower(m[1]) : ""
+        try Download(u.setup, file)
+        if want = "" || FileSha256(file) != want {
+            try FileDelete(file)
+            return this.Log("Update download failed or didn't match. Try again later")
+        }
+        this.Save()
+        Run('"' file '" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART')
+        ExitApp()
     }
 
     ; The window is a WebView2 page (ui\index.html). Closing it frees WebView2 (about 100 MB); watching goes on.
@@ -97,6 +152,7 @@ class App {
             case "close": this.CloseOne(m[2])
             case "remove": this.Remove(m[2])
             case "set": this.SetOpt(m[2], m.Length > 2 ? m[3] : "")
+            case "update": this.DoUpdate()
         }
     }
 
@@ -380,9 +436,19 @@ class App {
     ; LockKeeper.ahk holds ROBLOX_singletonMutex in its own process, so closing this tool never frees it.
     static HoldLock() {
         if !NameExists("Mutex", "KitsuneKeeper_ROBLOX_singletonMutex")
-            Run('"' A_AhkPath '" "' A_ScriptDir '\LockKeeper.ahk"')
+            this.RunKeeper()
         else if !this.LockSeen && (this.LockSeen := NameExists("Event", "KitsuneKeeper_held_ROBLOX_singletonMutex"))
             this.Log("Holding Roblox's lock: clients won't close each other, even if this tool closes")
+    }
+
+    ; The keeper runs from its own copy of the app, so an update can replace KitsuneRoblox.exe
+    ; while the keeper keeps the lock (closing it would close every client).
+    static RunKeeper() {
+        if !A_IsCompiled
+            return Run('"' A_AhkPath '" "' A_ScriptFullPath '" --keeper')
+        keeper := this.Data "\KitsuneKeeper.exe"
+        try FileCopy(A_ScriptFullPath, keeper, true)   ; fails while an old keeper runs: that one is fine
+        Run('"' (FileExist(keeper) ? keeper : A_ScriptFullPath) '" --keeper')
     }
 
     static Name(acct, pid) => acct && this.Accts.Has(acct) ? this.Accts[acct].name : "Client " pid
@@ -534,7 +600,7 @@ class App {
         for id, a in this.Accts
             accts.Push({id: id, name: a.name, state: a.state, pid: a.pid})
         for pid, c in this.Clients {
-            ingame += c.state = "in", ram += RamOf(pid)
+            ingame += c.state != "out", ram += RamOf(pid)   ; a client found after a restart stays "starting" until its next join line
             if !c.acct
                 others.Push({pid: pid, state: c.state = "in" ? "In game" : c.state = "out" ? "Disconnected" : "Starting"})
         }
@@ -545,7 +611,7 @@ class App {
             log.Push(this.Lines[this.Lines.Length - Min(40, this.Lines.Length) + A_Index])
         name := !g.ok ? "" : this.GameName != "" ? this.GameName : g.place ? "Place " g.place : "Private server"
         st := {running: this.Running, since: this.HasOwnProp("Since") ? this.Since : "", accts: accts, others: others, set: set
-            , game: {ok: g.ok, vip: g.vip, name: name}, stats: {ingame: ingame, ram: ram, rejoins: this.Rejoins}, log: log, askLink: this.AskLink}
+            , game: {ok: g.ok, vip: g.vip, name: name}, version: this.Version, update: this.Update ? this.Update.ver : "", stats: {ingame: ingame, ram: ram, rejoins: this.Rejoins}, log: log, askLink: this.AskLink}
         this.AskLink := false
         try this.Wv.CoreWebView2.PostWebMessageAsJson(Json(st))
     }
@@ -555,7 +621,7 @@ class App {
         this.Lines.Push(line)
         if this.Lines.Length > 100
             this.Lines.RemoveAt(1)
-        FileAppend(line "`n", A_ScriptDir "\KitsuneRoblox.log", "UTF-8")
+        FileAppend(line "`n", this.Data "\KitsuneRoblox.log", "UTF-8")
         this.Show()
     }
 }

@@ -95,6 +95,7 @@ input::placeholder { color: var(--faint); }
   <div class="row">
     <div class="fox"><canvas id="fox" width="16" height="8"></canvas></div>
     <div class="grow"><div class="title" id="title">KitsuneRoblox</div><div class="sub" id="since"></div></div>
+    <button class="pri pill" id="upd" hidden>Update</button>
     <button class="icon" id="gear" aria-label="Settings" title="Settings">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
     </button>
@@ -146,7 +147,7 @@ input::placeholder { color: var(--faint); }
       <div class="row set"><span class="grow">Anti-AFK every <input type="text" class="small" data-n="Minutes" aria-label="Anti-AFK minutes"> min, key <input type="text" class="small" data-n="Key" aria-label="Anti-AFK key"></span><button class="tg" data-k="AntiAfk" aria-label="Anti-AFK"></button></div>
       <div class="row set"><span class="grow">Trim RAM every <input type="text" class="small" data-n="TrimMin" aria-label="Trim RAM minutes"> min</span><button class="tg" data-k="TrimOn" aria-label="Trim RAM"></button></div>
     </div>
-    <div class="hint" style="margin-top: auto">Closing this window keeps watching in the tray.</div>
+    <div class="hint" style="margin-top: auto">Closing this window keeps watching in the tray. <span id="ver"></span></div>
   </div>
 </div>
 
@@ -180,6 +181,7 @@ document.querySelectorAll("input[data-n]").forEach(i => i.onchange = () => send(
 
 $("go").onclick = () => send(S.running ? "stop" : "start");
 $("add").onclick = () => send("add");
+$("upd").onclick = () => { $("upd").textContent = "Updating…"; send("update"); };
 $("all").onclick = () => send("playall");
 
 let S = {};
@@ -211,6 +213,9 @@ function render(s) {
   setTrot(s.running);
   $("game").textContent = s.game.name || "No game link yet";
   $("vip").hidden = !s.game.vip;
+  $("upd").hidden = !s.update;
+  if (s.update && !/…/.test($("upd").textContent)) $("upd").textContent = "Update to v" + s.update;
+  $("ver").textContent = "KitsuneRoblox v" + s.version;
   $("sIn").textContent = s.stats.ingame;
   $("sRam").innerHTML = ""; $("sRam").append(s.stats.ram >= 1024 ? (s.stats.ram / 1024).toFixed(1) : String(s.stats.ram), el("small", "", s.stats.ram >= 1024 ? " GB" : " MB"));
   $("sRej").textContent = s.stats.rejoins;

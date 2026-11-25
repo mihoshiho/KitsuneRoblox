@@ -2,3 +2,6 @@
 KitsuneRoblox.ini
 tools/AutoHotkey64.exe
 accounts.ini
+tools/inno/
+tools/ahk2exe/
+build/

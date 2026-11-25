@@ -13,4 +13,8 @@ Small tray tool for Roblox clients in your own Windows session:
 
 It stops and beeps if Roblox shows a popup or a kick message.
 
-Needs: Windows, WebView2 runtime (comes with Windows 11), AutoHotkey v2 at `tools\AutoHotkey64.exe` (not in git; copy it from KitsuneMacro). Start with `run.bat`.
+Install: `KitsuneRoblox-Setup.exe` from Releases (no admin). It checks for a new version every 6 hours and shows "Update to vX" at the top; one click installs it. Your settings, accounts and log live in `%LOCALAPPDATA%\KitsuneRoblox` and stay through updates.
+
+Needs: Windows, WebView2 runtime (comes with Windows 11), Fishstrap.
+
+Run from source: AutoHotkey v2 at `tools\AutoHotkey64.exe` (not in git), then `run.bat`. Build the installer: `release.ps1` (needs `tools\ahk2exe\Ahk2Exe.exe` and Inno Setup in `tools\inno`); `release.ps1 -Publish` also makes the GitHub release.
