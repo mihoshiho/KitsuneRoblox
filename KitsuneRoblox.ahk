@@ -260,8 +260,8 @@ class App {
         for pid in SessionProcs(this.Exe) {
             alive[pid] := 1
             if !this.Clients.Has(pid) {
-                acct := this.AcctOf(pid)
-                this.Clients[pid] := {acct: acct, log: "", pos: 0, state: "starting", outSince: 0, join: -99, born: A_TickCount - AgeOf(pid) * 1000, uid: "", saved: false, gone: 0, trimAt: 0}
+                acct := this.AcctOf(pid)   ; saved: only a client opened by our Play now may save the live login (an older one may not have written it last)
+                this.Clients[pid] := {acct: acct, log: "", pos: 0, state: "starting", outSince: 0, join: -99, born: A_TickCount - AgeOf(pid) * 1000, uid: "", saved: !(this.Launching && this.Launching.acct), gone: 0, trimAt: 0}
                 if acct
                     this.Accts[acct].pid := pid, this.Accts[acct].state := "In game"
             }
@@ -286,8 +286,10 @@ class App {
                 c.acct := c.uid, this.Accts[c.uid].pid := pid, this.Accts[c.uid].state := "In game"
                 this.Log("Client " pid " is " this.Accts[c.uid].name)
             }
-            if c.acct && c.uid && c.uid != c.acct          ; the account's saved login is someone else
-                return this.Stop("STOPPED: " this.Name(c.acct, pid) " opened as another account (user " c.uid "). Log in again for it", true)
+            if c.acct && c.uid && c.uid != c.acct {        ; the account's saved login is someone else: drop it, next Play asks to sign in
+                try FileMove(this.Profiles "\" this.Accts[c.acct].profile "\RobloxCookies.dat", this.Profiles "\" this.Accts[c.acct].profile "\RobloxCookies.dat.wrong", true)
+                return this.Stop("STOPPED: " this.Name(c.acct, pid) " opened as another account (user " c.uid "). Play it again and sign in to it in the Roblox window", true)
+            }
             if c.acct && c.uid = c.acct && !c.saved && this.Newest(pid)
                 c.saved := this.SaveLogin(c.acct)
             if this.Rej.Value && c.state = "out" && A_TickCount - c.outSince > 45000 {   ; 45 s: a teleport joins again before that
