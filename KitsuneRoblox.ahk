@@ -522,8 +522,17 @@ class App {
     static AcctOf(pid) => AcctOfPath(LTrim(CmdLine(pid), '"'), this.Accts, this.Profiles)
 
     static ReadLog(pid, c) {
-        if c.log = "" && !(c.log := FindLog(pid))
-            return ""
+        if c.log = "" {
+            taken := Map(), a := c.acct && this.Accts.Has(c.acct) ? this.Accts[c.acct] : 0
+            for p, o in this.Clients
+                if p != pid && o.log != ""
+                    taken[o.log] := 1
+            if !(c.log := FindLog(pid, , taken, a && a.profile != "" ? "\profiles\" a.profile "\" : "")) {
+                if !c.HasOwnProp("noLog") && A_TickCount - c.born > 120000   ; say it once: drops of this client can't be seen
+                    c.noLog := true, this.Log(this.Name(c.acct, pid) ": can't find its Roblox log, a disconnect won't be seen")
+                return ""
+            }
+        }
         try {
             f := FileOpen(c.log, "r", "UTF-8")        ; shared read: Roblox keeps writing. "r-" locked it and always failed
             f.Pos := c.pos, text := f.Read(), c.pos := f.Pos, f.Close()

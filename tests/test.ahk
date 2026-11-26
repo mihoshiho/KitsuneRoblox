@@ -105,6 +105,15 @@ FileAppend("", good)
 FileAppend("", dir "\0.748_" SubStr(t, 1, 8) "T" SubStr(t, 9) "Z_Player_BBBBB_CrashHandler_last.log")
 FileAppend("", dir "\0.748_20200101T000000Z_Player_CCCCC_last.log")
 Check(FindLog(me, dir) = good, "FindLog picks the log started with the process")
+Check(FindLog(me, dir, Map(good, 1)) = "", "a log another client uses is skipped")
+; a busy PC: the log came 23 s late; two logs, only one has this account's own Roblox path
+t := DateAdd(16010101, ft // 10000000 + 23, "Seconds"), t2 := DateAdd(t, 1, "Seconds")
+late := dir "\0.748_" SubStr(t, 1, 8) "T" SubStr(t, 9) "Z_Player_DDDDD_last.log"
+other := dir "\0.748_" SubStr(t2, 1, 8) "T" SubStr(t2, 9) "Z_Player_EEEEE_last.log"
+FileAppend("updaterFullPath: C:\x\profiles\p999\Roblox-version-1\RobloxPlayerBeta.exe", late)
+FileAppend("updaterFullPath: C:\x\profiles\p111\Roblox-version-1\RobloxPlayerBeta.exe", other)
+Check(FindLog(me, dir, Map(good, 1), "\profiles\p999\") = late, "log made 23 s late is found by the account's path")
+Check(FindLog(me, dir, Map(good, 1), "\profiles\p111\") = other, "the other account gets its own log")
 DirDelete(dir, true)
 
 ; Accounts: tracker, command line

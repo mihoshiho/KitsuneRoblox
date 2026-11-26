@@ -114,9 +114,11 @@ LogState(text, &joinAt := -99) {
     return state
 }
 
-; Log file of a client: the Player log whose name time is closest to the process start (within 20 s).
-; shortcut: matches by start time, two clients started in the same second could swap logs.
-FindLog(pid, dir := "") {
+; Log file of a client: the Player log made closest after the process start (5 s before to 2 min after:
+; on a busy PC Roblox made it 23 s late, and the old 20 s limit lost that client for good).
+; taken: logs other clients use. hint: text the log must have in its first 8 KB (an account's own
+; Roblox path is there), so a client never gets another account's log.
+FindLog(pid, dir := "", taken := "", hint := "") {
     dir := dir || EnvGet("LOCALAPPDATA") "\Roblox\logs"
     if !hProc := DllCall("OpenProcess", "UInt", 0x1000, "Int", 0, "UInt", pid, "Ptr")
         return ""
@@ -126,12 +128,23 @@ FindLog(pid, dir := "") {
     if !ok
         return ""
     start := DateAdd(16010101, ft // 10000000, "Seconds")     ; UTC, same as the log name
-    best := "", bestGap := 20
+    best := "", bestGap := 999
     loop files dir "\*_Player_*.log" {
         if InStr(A_LoopFileName, "CrashHandler") || !RegExMatch(A_LoopFileName, "_(\d{8})T(\d{6})Z_", &m)
+            || IsObject(taken) && taken.Has(A_LoopFileFullPath)
             continue
-        if (gap := Abs(DateDiff(m[1] m[2], start, "Seconds"))) <= bestGap
-            best := A_LoopFileFullPath, bestGap := gap
+        gap := DateDiff(m[1] m[2], start, "Seconds")
+        if gap < -5 || gap > 120 || Abs(gap) >= bestGap
+            continue
+        if hint != "" {
+            try {
+                f := FileOpen(A_LoopFileFullPath, "r", "UTF-8"), head := f.Read(8192), f.Close()
+            } catch
+                continue
+            if !InStr(head, hint)
+                continue
+        }
+        best := A_LoopFileFullPath, bestGap := Abs(gap)
     }
     return best
 }
