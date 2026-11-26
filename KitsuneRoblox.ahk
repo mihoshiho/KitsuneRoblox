@@ -407,7 +407,7 @@ class App {
             alive[pid] := 1
             if !this.Clients.Has(pid) {
                 acct := this.AcctOf(pid)   ; saved: only a client opened by our Play now may save the live login (an older one may not have written it last)
-                this.Clients[pid] := {acct: acct, log: "", pos: 0, state: "starting", outSince: 0, join: -99, born: A_TickCount - AgeOf(pid) * 1000, uid: "", saved: !(this.Launching && this.Launching.acct), placed: !(this.Launching && this.Launching.acct), gone: 0, trimAt: 0}
+                this.Clients[pid] := {acct: acct, log: "", pos: 0, state: "starting", outSince: 0, join: -99, born: A_TickCount - AgeOf(pid) * 1000, uid: "", saved: !(this.Launching && this.Launching.acct), placed: !(this.Launching && this.Launching.acct), hungSince: 0, gone: 0, trimAt: 0}
                 if acct
                     this.Accts[acct].pid := pid, this.Accts[acct].state := "In game"
             }
@@ -438,8 +438,12 @@ class App {
             }
             if c.acct && c.uid = c.acct && !c.saved && this.Newest(pid)
                 c.saved := this.SaveLogin(c.acct)
-            if this.Rej.Value && c.state = "out" && A_TickCount - c.outSince > 45000 {   ; 45 s: a teleport joins again before that
-                this.Log(this.Name(c.acct, pid) " disconnected: rejoining"), this.Rejoins++
+            ; "Not responding" for 90 s (low memory froze one for good, and Roblox never ended it): treat as a drop
+            hwnd := WinExist(this.Win " ahk_pid " pid)
+            c.hungSince := hwnd && DllCall("IsHungAppWindow", "Ptr", hwnd) ? (c.hungSince || A_TickCount) : 0
+            frozen := c.hungSince && A_TickCount - c.hungSince > 90000
+            if this.Rej.Value && (frozen || c.state = "out" && A_TickCount - c.outSince > 45000) {   ; 45 s: a teleport joins again before that
+                this.Log(this.Name(c.acct, pid) (frozen ? " froze: rejoining" : " disconnected: rejoining")), this.Rejoins++
                 this.Clients.Delete(pid), this.Free(c.acct, pid)
                 ProcessClose(pid)
                 this.Queue.Push(c.acct)               ; "" = a client not opened from an account: plain game link
