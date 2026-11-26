@@ -35,6 +35,8 @@ Check(!NameExists("Mutex", "KitsuneTest_" me ".mtx"), "mutex name gone")
 ; Session filter
 Check(SessionOf(me) != "", "own session read")
 Check(RedirectGuarded() = 0, "no redirection guard here")
+MonitorGetWorkArea(MonitorGetPrimary(), &ml, &mt, &mr, &mb)
+Check(OnScreen(ml + 100, mt + 100, 800, 600) && !OnScreen(-99999, -99999, 800, 600), "window spot on a screen or not")
 found := false
 for pid in SessionProcs("AutoHotkey64.exe")
     found := found || pid = me

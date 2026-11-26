@@ -236,3 +236,14 @@ RedirectGuarded() {
     buf := Buffer(4, 0)                         ; ProcessRedirectionTrustPolicy = 16, bit 0 = enforce
     return DllCall("GetProcessMitigationPolicy", "Ptr", -1, "Int", 16, "Ptr", buf, "UPtr", 4) && NumGet(buf, "UInt") & 1
 }
+
+; True if a window at x, y (w x h) has its title bar on a screen that's connected now.
+OnScreen(x, y, w, h) {
+    cx := x + w // 2, cy := y + 15
+    loop MonitorGetCount() {
+        MonitorGet(A_Index, &l, &t, &r, &b)
+        if cx >= l && cx < r && cy >= t && cy < b
+            return true
+    }
+    return false
+}

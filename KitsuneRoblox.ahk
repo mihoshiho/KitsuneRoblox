@@ -230,7 +230,7 @@ class App {
         try for id in StrSplit(IniRead(this.AccIni), "`n") {
             try IniDelete(this.AccIni, id, "Cookie")  ; older versions kept a cookie copy: not needed now
             this.Accts[id] := {name: IniRead(this.AccIni, id, "Name", id), tracker: IniRead(this.AccIni, id, "Tracker", NewTracker())
-                , profile: p := IniRead(this.AccIni, id, "Profile", ""), pid: 0
+                , profile: p := IniRead(this.AccIni, id, "Profile", ""), pid: 0, win: IniRead(this.AccIni, id, "Pos", "")
                 , state: p != "" && DirExist(this.Profiles "\" p) ? "Idle" : "Log in again"}
         }
     }
@@ -290,7 +290,7 @@ class App {
         if old && old.profile != ""
             this.DropProfile(old.profile)
         a := this.Accts[u.id] := {name: u.name, tracker: old ? old.tracker : NewTracker(), profile: this.LoginProfile
-            , pid: old ? old.pid : 0, state: old && old.state != "Log in again" ? old.state : "Idle"}
+            , pid: old ? old.pid : 0, win: old ? old.win : "", state: old && old.state != "Log in again" ? old.state : "Idle"}
         IniWrite(a.name, this.AccIni, u.id, "Name"), IniWrite(a.tracker, this.AccIni, u.id, "Tracker")
         IniWrite(a.profile, this.AccIni, u.id, "Profile")
         this.Log((old ? "Updated " : "Added ") a.name)
@@ -407,7 +407,7 @@ class App {
             alive[pid] := 1
             if !this.Clients.Has(pid) {
                 acct := this.AcctOf(pid)   ; saved: only a client opened by our Play now may save the live login (an older one may not have written it last)
-                this.Clients[pid] := {acct: acct, log: "", pos: 0, state: "starting", outSince: 0, join: -99, born: A_TickCount - AgeOf(pid) * 1000, uid: "", saved: !(this.Launching && this.Launching.acct), gone: 0, trimAt: 0}
+                this.Clients[pid] := {acct: acct, log: "", pos: 0, state: "starting", outSince: 0, join: -99, born: A_TickCount - AgeOf(pid) * 1000, uid: "", saved: !(this.Launching && this.Launching.acct), placed: !(this.Launching && this.Launching.acct), gone: 0, trimAt: 0}
                 if acct
                     this.Accts[acct].pid := pid, this.Accts[acct].state := "In game"
             }
@@ -447,7 +447,7 @@ class App {
                     this.Accts[c.acct].state := "Waiting"
             }
         }
-        this.TrimAll()
+        this.TrimAll(), this.SaveWins()
         this.Launch(alive)
         if this.Afk.Value
             this.AntiAfk()
@@ -588,11 +588,42 @@ class App {
 
     ; Bring a client we started to the front once its window shows (started directly, Windows opens it behind).
     ; Not while you type, so it never takes your keys. Gives up after 1 min.
+    ; Its window first goes back where this account's window was last time (moving takes no focus).
     static Front(pid, at) {
-        if (hwnd := WinExist(this.Win " ahk_pid " pid)) && A_TimeIdlePhysical > 3000
-            return (WinActivate(hwnd), this.Log(this.Name(this.Clients.Has(pid) ? this.Clients[pid].acct : "", pid) ": window shown"))
+        c := this.Clients.Has(pid) ? this.Clients[pid] : 0
+        if hwnd := WinExist(this.Win " ahk_pid " pid) {
+            if c && !c.placed
+                c.placed := true, this.Place(hwnd, c.acct)
+            if A_TimeIdlePhysical > 3000
+                return (WinActivate(hwnd), this.Log(this.Name(c ? c.acct : "", pid) ": window shown"))
+        }
         if A_TickCount - at < 60000 && ProcessExist(pid)
             SetTimer(() => this.Front(pid, at), -1000)
+        else if c
+            c.placed := true
+    }
+
+    static Place(hwnd, acct) {
+        if !acct || !this.Accts.Has(acct) || (p := StrSplit(this.Accts[acct].win, ",")).Length != 4 || !OnScreen(p*)
+            return
+        try WinMove(p[1], p[2], p[3], p[4], hwnd)
+    }
+
+    ; Remember where each account's Roblox window is (not while minimized or full screen, and not
+    ; before a new window was moved to its spot: it would save Roblox's own start spot).
+    static SaveWins() {
+        for id, a in this.Accts {
+            if !a.pid || !this.Clients.Has(a.pid) || !this.Clients[a.pid].placed || !(hwnd := WinExist(this.Win " ahk_pid " a.pid))
+                continue
+            try {
+                if WinGetMinMax(hwnd) != 0
+                    continue
+                WinGetPos(&x, &y, &w, &h, hwnd)
+            } catch
+                continue
+            if (v := x "," y "," w "," h) != a.win && w > 200 && h > 150 && OnScreen(x, y, w, h)
+                a.win := v, IniWrite(v, this.AccIni, id, "Pos")
+        }
     }
 
     ; Roblox kicks after 20 min with no input. Background key messages don't count, so focus each
