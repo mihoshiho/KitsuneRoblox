@@ -11,7 +11,7 @@ Check(ok, what) {
     fails += !ok
 }
 
-me := DllCall("GetCurrentProcessId")
+me := DllCall("GetCurrentProcessId"), t0 := A_TickCount
 
 ; Close-handle path, on our own process with a test name (no Roblox touched).
 name := "KitsuneTest_singletonEvent_" me
@@ -147,7 +147,7 @@ FileAppend("normal crash handler log", dir "\b_Player_Y_CrashHandler_last.log")
 Check(Crashed(48876, dir), "crash report found")
 Check(!Crashed(4887, dir) && !Crashed(488760, dir), "other pids: no crash")
 DirDelete(dir, true)
-Check(AgeOf(me) < 10, "process age read")
+Check(Abs(AgeOf(me) - (A_TickCount - t0) // 1000) <= 3, "process age read")   ; vs the test's own run time: a busy PC makes it slow
 f := A_Temp "\kr-hung-" me ".log"
 FileAppend("2026-11-23T20:53:55.160Z,215.160339,c878,6,Error [FLog::CrashReportLog] Terminated due it was hanging past timeout.`n", f)
 Check(Hung(f), "frozen client ended by Roblox = hung")
@@ -160,7 +160,13 @@ name := "KitsuneTest_mutex_" me, h := 0
 child := A_Temp "\kr-mutex-child-" me ".ahk"
 FileAppend('h := DllCall("CreateMutex", "Ptr", 0, "Int", 0, "Str", "' name '", "Ptr"), r := DllCall("WaitForSingleObject", "Ptr", h, "UInt", 0, "UInt")`nif A_Args.Length`n    Sleep(1500)`nExitApp(r)', child)
 Check(RunWait('"' A_AhkPath '" "' child '"') = 0, "free lock: child gets it")
-Run('"' A_AhkPath '" "' child '" hold', , , &cp), Sleep(500)
+Run('"' A_AhkPath '" "' child '" hold', , , &cp)
+loop 50 {                                       ; wait until the child made it (a busy PC starts it slowly)
+    if NameExists("Mutex", name)
+        break
+    Sleep(100)
+}
+Sleep(200)
 Check(!OwnMutex(name, &h), "child holds it: we don't")
 ProcessWaitClose(cp, 5)
 Check(OwnMutex(name, &h), "child died holding it: now ours")
