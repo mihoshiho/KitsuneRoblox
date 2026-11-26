@@ -207,8 +207,8 @@ function acctRow(id, name, state, pid) {
 
 function render(s) {
   S = s;
-  $("title").textContent = s.running ? "Watching " + s.stats.ingame + (s.stats.ingame === 1 ? " client" : " clients") : "Not watching";
-  $("since").textContent = s.running ? "since " + s.since : "Press Start to watch your clients";
+  $("title").textContent = s.paused ? "Paused" : s.running ? "Watching " + s.stats.ingame + (s.stats.ingame === 1 ? " client" : " clients") : "Not watching";
+  $("since").textContent = s.paused ? "Close the Roblox popup and watching goes on" : s.running ? "since " + s.since : "Press Start to watch your clients";
   $("go").textContent = s.running ? "Stop" : "Start";
   setTrot(s.running);
   $("game").textContent = s.game.name || "No game link yet";

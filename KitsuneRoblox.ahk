@@ -34,7 +34,7 @@ class App {
     static Accts := Map()           ; user id -> {name, tracker, profile, pid, state}
     static Clients := Map()         ; pid -> {acct, log, pos, state, outSince, join, born, uid, saved, gone, trimAt}
     static Poked := Map()           ; hwnd -> tick of last anti-AFK key
-    static Queue := [], Launching := 0, Fails := 0, Lines := [], LockSeen := false
+    static Queue := [], Launching := 0, Fails := 0, Lines := [], LockSeen := false, Paused := false
     static Opt := Map(), AskLink := false, UiReady := false, Rejoins := 0, GameName := ""
     static PushFn := ObjBindMethod(App, "Push")
     static TickFn := ObjBindMethod(App, "Tick")
@@ -371,7 +371,7 @@ class App {
     }
 
     static Stop(why, alert := false) {
-        this.Running := false, this.Queue := [], this.Launching := 0
+        this.Running := false, this.Queue := [], this.Launching := 0, this.Paused := false
         SetTimer(this.TickFn, 0)
         for id, a in this.Accts
             if a.state = "Waiting" || a.state = "Opening"
@@ -386,8 +386,20 @@ class App {
     static Tick() {
         if !this.Running
             return
-        if WinExist("ahk_class #32770 ahk_exe " this.Exe)      ; a Roblox popup (error, warning): a person must look
-            return this.Stop("STOPPED: Roblox shows a popup. Check it, then start again", true)
+        ; A Roblox popup (error, warning): a person must look. Pause until it's closed, then go on by itself,
+        ; so a client that dropped meanwhile still rejoins. A kick, ban or "same account" popup stops for good.
+        if hwnd := WinExist("ahk_class #32770 ahk_exe " this.Exe) {
+            if this.Paused
+                return
+            what := "", this.Paused := true
+            try what := Trim(WinGetTitle(hwnd) ": " RegExReplace(WinGetText(hwnd), "\s+", " "))
+            if RegExMatch(what, "i)\b(kick(ed)?|bann?ed)\b|same account")
+                return (this.Paused := false, this.Stop("STOPPED: Roblox popup: " what, true))
+            SoundPlay("*48"), TrayTip("Roblox shows a popup. Close it and watching goes on", "KitsuneRoblox", 2)
+            return this.Log("PAUSED: Roblox popup (" what "). Close it and watching goes on")
+        }
+        if this.Paused
+            this.Paused := false, this.Log("Popup closed: watching again")
         if this.Multi.Value
             this.HoldLock()
         alive := Map()
@@ -635,7 +647,7 @@ class App {
         loop Min(40, this.Lines.Length)
             log.Push(this.Lines[this.Lines.Length - Min(40, this.Lines.Length) + A_Index])
         name := !g.ok ? "" : this.GameName != "" ? this.GameName : g.place ? "Place " g.place : "Private server"
-        st := {running: this.Running, since: this.HasOwnProp("Since") ? this.Since : "", accts: accts, others: others, set: set
+        st := {running: this.Running, paused: this.Paused, since: this.HasOwnProp("Since") ? this.Since : "", accts: accts, others: others, set: set
             , game: {ok: g.ok, vip: g.vip, name: name}, version: this.Version, update: this.Update ? this.Update.ver : "", stats: {ingame: ingame, ram: ram, rejoins: this.Rejoins}, log: log, askLink: this.AskLink}
         this.AskLink := false
         try this.Wv.CoreWebView2.PostWebMessageAsJson(Json(st))
